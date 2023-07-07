@@ -1,14 +1,13 @@
 from PyPDF2 import PdfReader
 import re
 import pandas as pd
-from backup_to_cards import tokenize_and_explode, clean_clue_text, clean_answer_text
+from text_processing import tokenize_and_explode, cleanup
 
-def cardify(packet_filepath, diff=None, yr=None, split_up=False):
+def cardify(packet_filepath, diff=None, yr=None, split_up=True, clean_up=True):
     '''
     Convert a packet of quizbowl questions in PDF format to an Anki-compatible
     csv of clue-level flashcards.
     #TODO: Add support for .docx
-    #TODO: add clue and answer text processing from other file
     #TODO: Create a wrapper method to loop through an entire folder of packets
 
     Inputs:
@@ -58,7 +57,8 @@ def cardify(packet_filepath, diff=None, yr=None, split_up=False):
 
     if split_up:
         packet_df = tokenize_and_explode(packet_df)
-        #TODO: clue and answer text processing
+        if clean_up:
+            packet_df = cleanup(packet_df)
 
     packet_df.loc[:,'tags'] = ''
     if diff is not None:
