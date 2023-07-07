@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "questions-to-cards"
+version = "0.1.0"
+description = "Scripts for converting bulk collections of quizbowl questions, such as folders of packets or QBReader backup .s, into .csv files formatted for import as Anki digital flashcards"
+authors = ["Matt Jackson"]
+license = "None"
+readme = "README.md"
+packages = [{include = "questions_to_cards"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+datetime = "^5.1"
+tqdm = "^4.65.0"
+pandas = "^2.0.3"
+jellyfish = "^1.0.0"
+unidecode = "^1.3.6"
+pypdf2 = "^3.0.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
