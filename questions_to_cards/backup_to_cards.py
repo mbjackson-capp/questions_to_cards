@@ -13,6 +13,7 @@ import os
 from datetime import datetime
 from tqdm import tqdm
 from text_processing import tokenize_and_explode, cleanup
+from utility import write_out
 
 tqdm.pandas()
 
@@ -172,13 +173,6 @@ def tagstring(row):
     #PRONOUN_RE = re.compile('((?<=\s)(he|him|his|she|her|hers|it|its|it\'s|it’s|they|them|their|theirs|they\'re|they’re)|^(he|him|his|she|her|hers|it|its|it\'s|it’s|they|them|their|theirs|they\'re|they’re)|(this|these|that|those))(\s|\.|\?|’|\!)',
     # re.IGNORECASE)
     
-def write_out(clues, filepath):
-    '''
-    Write out rows of (clue, answer, tagstring) to an Anki-compatible,
-    tab-separated .csv file.
-    '''
-    clues.loc[:,['clue', 'answer', 'tags']].to_csv(filepath, sep="\t", 
-                                                   escapechar="\\", index=False)
 
 ###TESTS###  
 

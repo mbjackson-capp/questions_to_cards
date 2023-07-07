@@ -2,8 +2,17 @@ from PyPDF2 import PdfReader
 import re
 import pandas as pd
 from text_processing import tokenize_and_explode, cleanup
+from utility import write_out
+from datetime import datetime
 
-def cardify(packet_filepath, diff=None, yr=None, split_up=True, clean_up=True):
+def cardify(
+        packet_filepath, 
+        diff=None, 
+        yr=None, 
+        split_up=True, 
+        clean_up=True,
+        write_to_file=True
+        ):
     '''
     Convert a packet of quizbowl questions in PDF format to an Anki-compatible
     csv of clue-level flashcards.
@@ -67,8 +76,20 @@ def cardify(packet_filepath, diff=None, yr=None, split_up=True, clean_up=True):
         packet_df.loc[:,'tags'] += f"yr::{yr} "
     packet_df.loc[:,'tags'] = packet_df.loc[:,'tags'].str.strip()
 
-    return packet_df
+    if write_to_file:
+        now = datetime.now().strftime("%Y%-m%d-%H%M%S")
+        filepath = f"test_output/packet_clues_{now}.csv"
+        print(f"Writing clue cards to {filepath}...")
+        write_out(packet_df, filepath)
+        print("Write-out complete")
+    else:
+        print("Here is your dataframe. Enjoy!")
+        return packet_df
 
 if __name__ == '__main__':
-    packet_df = cardify('test_input/Packet A.pdf', diff=8, yr=2022, split_up=True)
+    packet_df = cardify(
+        'test_input/Packet A.pdf', 
+        diff=8, 
+        yr=2022, 
+        split_up=True)
     print(packet_df)
