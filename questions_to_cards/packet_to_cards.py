@@ -3,11 +3,12 @@ from docx import Document
 from datetime import datetime
 import re
 import pandas as pd
-import time
 
 from text_processing import tokenize_and_explode, cleanup
 from utility import write_out
 
+#TODO: put non-match group in proper place so output of re.split() doesn't
+#produce a bunch of blanks
 SPLIT_RE = re.compile(r"(?=ANSWER:)|" #answer line
                     r"(?<=\>)\s?[0-9]{1,2}\.\s|" #question-starting number
                     r"Tossups |"
@@ -15,16 +16,10 @@ SPLIT_RE = re.compile(r"(?=ANSWER:)|" #answer line
                     r"\[.{1,3}]\s?|" #part indicator
                     r"(?:__SPLIT__)")
 
-DOCX_JUNK = r'\s+|<[^>]+>'
+#TODO: figure out a better way to deal with "Bonuses" in BHSU packet 1
+DOCX_JUNK = r'\s+|<[^>]+>|Bonuses'
 
-def pdf_cardify(
-        packet_filepath, 
-        diff=None, 
-        yr=None, 
-        split_up=True, 
-        clean_up=True,
-        write_to_file=True
-        ):
+def pdf_to_text(packet_filepath):
     '''
     Convert a packet of quizbowl questions in PDF format to an Anki-compatible
     csv of clue-level flashcards.
@@ -50,18 +45,58 @@ def pdf_cardify(
     all_text = re.sub('^.+(Tossups|TOSSUPS)', '', all_text) #remove authorship credits from top
     all_text = re.split(SPLIT_RE, all_text)
 
-    #TODO: SPLIT OFF EVERYTHING BELOW INTO ITS OWN FUNCTION
-    #(which pdf and docx input streams can both feed into)
+    return all_text
 
-    #TODO: check here if ANSWER: is in the right places, halt or warn user if not
 
+def docx_to_text(packet_filepath):
+    '''
+    Convert a .docx file into cards. 
+    Inspired by qbreader doc-to-txt.py, by Geoffrey Wu
+    '''
+    #TODO: Check whether ANSWER: is in the right place (every odd-index up until
+    # bonuses start, at which point it's 3-2-2 to account for bonus leadins)
+
+    all_text = ""
+    doc = Document(packet_filepath)
+    for para in doc.paragraphs:
+        all_text += (para.text + "__SPLIT__")
+        #all_text += " "
+
+    all_text = re.sub('\n', ' ', all_text) #remove spurious newlines
+    all_text = re.sub('^.+(Tossups|TOSSUPS)', '', all_text) #remove authorship credits from top
+    all_text = re.split(SPLIT_RE, all_text)
+    for i, graf in enumerate(all_text):
+        #TODO: handle category tags in some manner other than deleting if they
+        #are present
+        if re.match(DOCX_JUNK, graf) or graf == "":
+            all_text[i] = "__DELETE__"
+    all_text = [i for i in all_text if i != "__DELETE__"]
+
+    return all_text
+
+def text_to_cards(
+        all_text: list,
+        diff=None, 
+        yr=None, 
+        split_up=True, 
+        clean_up=True,
+        write_to_file=True,
+        debug=False
+        ):
+    '''
+    Take the output of pdf_to_text() or docx_to_text() and convert that list
+    of strings into a DataFrame of clue-answer cards.
+    '''
     clue = []
     answer = []
     for idx, segment in enumerate(all_text):
         # alternate clue-answer except for bonus leadins, which "leap ahead" to find 
         # the corresponding answer
         #TODO: create or import a more thorough FTPE_RE for edge cases and old questions
-        if 'or 10 points each' in segment:
+        #TODO: less dodgy way of dealing with the "Bonuses" in BHSU packet 1
+        if segment == 'Bonuses':
+            continue
+        elif 'or 10 points each' in segment:
             clue.append(segment)
             leadin_ans = re.sub('ANSWER: ', '', all_text[idx+2]) #TODO: fix magic number 2
             answer.append(leadin_ans)
@@ -70,6 +105,16 @@ def pdf_cardify(
             answer.append(segment)
         else:
             clue.append(segment)
+
+    if debug:
+        for clu in clue:
+            print(clu) 
+            print('\n')
+        print('\n')
+        for ans in answer:
+            print(ans)
+
+    assert len(clue) == len(answer), f"You have {len(clue)} clues and {len(answer)} corresponding answers"
 
     packet_df = pd.DataFrame({'clue':clue,
                             'answer':answer})
@@ -86,6 +131,8 @@ def pdf_cardify(
         packet_df.loc[:,'tags'] += f"yr::{yr} "
     packet_df.loc[:,'tags'] = packet_df.loc[:,'tags'].str.strip()
 
+    #TODO: maybe reset_index() here; final index is larger than df length
+
     if write_to_file:
         now = datetime.now().strftime("%Y%-m%d-%H%M%S")
         filepath = f"test_output/packet_clues_{now}.csv"
@@ -96,45 +143,12 @@ def pdf_cardify(
         print("Here is your dataframe. Enjoy!")
         return packet_df
 
-def docx_to_cards(packet_filepath):
-    '''
-    Convert a .docx file into cards. 
-    Inspired by qbreader doc-to-txt.py, by Geoffrey Wu
-    '''
-    all_text = ""
-    doc = Document(packet_filepath)
-    for para in doc.paragraphs:
-        all_text += (para.text + "__SPLIT__")
-        #all_text += " "
-
-    all_text = re.sub('\n', ' ', all_text) #remove spurious newlines
-    all_text = re.sub('^.+(Tossups|TOSSUPS)', '', all_text) #remove authorship credits from top
-    all_text = re.split(SPLIT_RE, all_text)
-    for i, graf in enumerate(all_text):
-        #TODO: handle category tags in some manner other than deleting if they
-        #are present
-        if re.match(DOCX_JUNK, graf) or graf == "":
-            all_text[i] = "__DELETE__"
-    all_text = [i for i in all_text if i != "__DELETE__"]
-    
-
-    #TODO: fix SPLIT_RE so it doesn't produce a bunch of blanks
-
-    return all_text
 
 if __name__ == '__main__':
-    choice = input("Cardify the PDF? Or test the .docx? : ")
+    choice = input("Cardify the PDF? Or the .docx? : ")
     if 'pdf' in choice.lower():
-        packet_df = pdf_cardify(
-            'test_input/Packet A.pdf', 
-            diff=8, 
-            yr=2022, 
-            split_up=True)
-        print(packet_df)
+        packet_text = pdf_to_text('test_input/Packet A.pdf')
     elif 'doc' in choice.lower():
-        output = docx_to_cards('test_input/Packet 1.docx')
-        for item in output:
-            print(item)
-            print('\n')
-            time.sleep(0.5)
-        print(len(output))
+        packet_text = docx_to_text('test_input/Packet 1.docx')
+    packet_df = text_to_cards(packet_text, split_up=True, clean_up=True, write_to_file=False)
+    print(packet_df)
