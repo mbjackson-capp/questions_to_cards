@@ -1,11 +1,23 @@
 from PyPDF2 import PdfReader
+from docx import Document
+from datetime import datetime
 import re
 import pandas as pd
+import time
+
 from text_processing import tokenize_and_explode, cleanup
 from utility import write_out
-from datetime import datetime
 
-def cardify(
+SPLIT_RE = re.compile(r"(?=ANSWER:)|" #answer line
+                    r"(?<=\>)\s?[0-9]{1,2}\.\s|" #question-starting number
+                    r"Tossups |"
+                    r"Bonuses |"
+                    r"\[.{1,3}]\s?|" #part indicator
+                    r"(?:__SPLIT__)")
+
+DOCX_JUNK = r'\s+|<[^>]+>'
+
+def pdf_cardify(
         packet_filepath, 
         diff=None, 
         yr=None, 
@@ -16,7 +28,6 @@ def cardify(
     '''
     Convert a packet of quizbowl questions in PDF format to an Anki-compatible
     csv of clue-level flashcards.
-    #TODO: Add support for .docx
     #TODO: Create a wrapper method to loop through an entire folder of packets
 
     Inputs:
@@ -35,15 +46,14 @@ def cardify(
     for page in reader.pages:
         all_text += page.extract_text()
 
-    SPLIT_RE = re.compile("(?=ANSWER:)|" #answer line
-                        "(?<=\>)\s?[0-9]{1,2}\.\s|" #question-starting number
-                        "Tossups |"
-                        "Bonuses |"
-                        "\[.{1,3}]\s?") #part indicator
-
     all_text = re.sub('\n', ' ', all_text) #remove spurious newlines
-    all_text = re.sub('^.+Tossups', '', all_text) #remove authorship credits from top
+    all_text = re.sub('^.+(Tossups|TOSSUPS)', '', all_text) #remove authorship credits from top
     all_text = re.split(SPLIT_RE, all_text)
+
+    #TODO: SPLIT OFF EVERYTHING BELOW INTO ITS OWN FUNCTION
+    #(which pdf and docx input streams can both feed into)
+
+    #TODO: check here if ANSWER: is in the right places, halt or warn user if not
 
     clue = []
     answer = []
@@ -86,10 +96,45 @@ def cardify(
         print("Here is your dataframe. Enjoy!")
         return packet_df
 
+def docx_to_cards(packet_filepath):
+    '''
+    Convert a .docx file into cards. 
+    Inspired by qbreader doc-to-txt.py, by Geoffrey Wu
+    '''
+    all_text = ""
+    doc = Document(packet_filepath)
+    for para in doc.paragraphs:
+        all_text += (para.text + "__SPLIT__")
+        #all_text += " "
+
+    all_text = re.sub('\n', ' ', all_text) #remove spurious newlines
+    all_text = re.sub('^.+(Tossups|TOSSUPS)', '', all_text) #remove authorship credits from top
+    all_text = re.split(SPLIT_RE, all_text)
+    for i, graf in enumerate(all_text):
+        #TODO: handle category tags in some manner other than deleting if they
+        #are present
+        if re.match(DOCX_JUNK, graf) or graf == "":
+            all_text[i] = "__DELETE__"
+    all_text = [i for i in all_text if i != "__DELETE__"]
+    
+
+    #TODO: fix SPLIT_RE so it doesn't produce a bunch of blanks
+
+    return all_text
+
 if __name__ == '__main__':
-    packet_df = cardify(
-        'test_input/Packet A.pdf', 
-        diff=8, 
-        yr=2022, 
-        split_up=True)
-    print(packet_df)
+    choice = input("Cardify the PDF? Or test the .docx? : ")
+    if 'pdf' in choice.lower():
+        packet_df = pdf_cardify(
+            'test_input/Packet A.pdf', 
+            diff=8, 
+            yr=2022, 
+            split_up=True)
+        print(packet_df)
+    elif 'doc' in choice.lower():
+        output = docx_to_cards('test_input/Packet 1.docx')
+        for item in output:
+            print(item)
+            print('\n')
+            time.sleep(0.5)
+        print(len(output))
