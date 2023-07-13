@@ -3,6 +3,7 @@ from docx import Document
 from datetime import datetime
 import re
 import pandas as pd
+import os
 
 from text_processing import tokenize_and_explode, cleanup
 from utility import write_out
@@ -13,17 +14,17 @@ SPLIT_RE = re.compile(r"(?=ANSWER:)|" #answer line
                     r"(?<=\>)\s?[0-9]{1,2}\.\s|" #question-starting number
                     r"Tossups |"
                     r"Bonuses |"
-                    r"\[.{1,3}]\s?|" #part indicator
+                    r"\[[10emh]{1,3}]\s?|" #part indicator
                     r"(?:__SPLIT__)")
 
 #TODO: figure out a better way to deal with "Bonuses" in BHSU packet 1
 DOCX_JUNK = r'\s+|<[^>]+>|Bonuses'
 
+
 def pdf_to_text(packet_filepath):
     '''
-    Convert a packet of quizbowl questions in PDF format to an Anki-compatible
-    csv of clue-level flashcards.
-    #TODO: Create a wrapper method to loop through an entire folder of packets
+    Convert a packet of quizbowl questions in PDF format to a list that can
+    then be passed into a card-creation function.
 
     Inputs:
         -packet_filepath(str): location of packet file to be read in
@@ -50,7 +51,7 @@ def pdf_to_text(packet_filepath):
 
 def docx_to_text(packet_filepath):
     '''
-    Convert a .docx file into cards. 
+    Convert a .docx file into a list to be passed into card-creation function. 
     Inspired by qbreader doc-to-txt.py, by Geoffrey Wu
     '''
     #TODO: Check whether ANSWER: is in the right place (every odd-index up until
@@ -78,8 +79,6 @@ def text_to_cards(
         all_text: list,
         diff=None, 
         yr=None, 
-        split_up=True, 
-        clean_up=True,
         write_to_file=True,
         debug=False
         ):
@@ -87,8 +86,8 @@ def text_to_cards(
     Take the output of pdf_to_text() or docx_to_text() and convert that list
     of strings into a DataFrame of clue-answer cards.
     '''
-    clue = []
-    answer = []
+    clues = []
+    answers = []
     for idx, segment in enumerate(all_text):
         # alternate clue-answer except for bonus leadins, which "leap ahead" to find 
         # the corresponding answer
@@ -97,32 +96,36 @@ def text_to_cards(
         if segment == 'Bonuses':
             continue
         elif 'or 10 points each' in segment:
-            clue.append(segment)
+            clues.append(segment)
             leadin_ans = re.sub('ANSWER: ', '', all_text[idx+2]) #TODO: fix magic number 2
-            answer.append(leadin_ans)
+            answers.append(leadin_ans)
         elif 'ANSWER: ' in segment:
             segment = re.sub('ANSWER: ', '', segment)
-            answer.append(segment)
+            answers.append(segment)
         else:
-            clue.append(segment)
+            clues.append(segment)
 
     if debug:
-        for clu in clue:
-            print(clu) 
+        for clue in clues:
+            print(clue) 
             print('\n')
         print('\n')
-        for ans in answer:
+        for ans in answers:
             print(ans)
 
-    assert len(clue) == len(answer), f"You have {len(clue)} clues and {len(answer)} corresponding answers"
+    if len(clues) != len(answers):
+        for i, clue in enumerate(clues):
+            print(i, clue)
+        for j, ans in enumerate(answers):
+            print(j, ans)
+        raise Exception(f"Mismatch: You have {len(clues)} clues and {len(answers)} corresponding answers")
 
-    packet_df = pd.DataFrame({'clue':clue,
-                            'answer':answer})
+    packet_df = pd.DataFrame({'clue':clues,
+                            'answer':answers})
 
-    if split_up:
-        packet_df = tokenize_and_explode(packet_df)
-        if clean_up:
-            packet_df = cleanup(packet_df)
+    #split up
+    packet_df = tokenize_and_explode(packet_df)
+    packet_df = cleanup(packet_df)
 
     packet_df.loc[:,'tags'] = ''
     if diff is not None:
@@ -140,8 +143,41 @@ def text_to_cards(
         write_out(packet_df, filepath)
         print("Write-out complete")
     else:
-        print("Here is your dataframe. Enjoy!")
         return packet_df
+
+def folder_to_cards(folder, write_out=True):
+    '''
+    Convert all .docx and .pdf files in a folder into an Anki-importable csv
+    of cards. 
+    Inputs:
+        -folder (str): Name of the directory to be carded
+        -write_out (boolean): whether to write out the resulting df to .csv
+        or return it in-environment
+    Returns (pandas DataFrame): cards
+    '''
+    cards_df = pd.DataFrame(columns=['clue', 'answer', 'tags'])
+
+    for filename in os.listdir(folder):
+        full_name = folder + '/' + filename
+        print(os.path.abspath(full_name))
+        if '.pdf' in filename:
+            this_file_text = pdf_to_text(full_name)
+        elif '.docx' in filename:
+            this_file_text = docx_to_text(full_name)
+
+        print(f"Appending cards from {filename}...")
+        cards_df.append(text_to_cards(this_file_text, write_to_file=False))
+
+    if write_out:
+        now = datetime.now().strftime("%Y%-m%d-%H%M%S")
+        filepath = f"test_output/folder_clues_{now}.csv"
+        print(f"Writing clue cards to {filepath}...")
+        write_out(cards_df, filepath)
+        print("Write-out complete")
+    else:
+        print("Here's your df")
+        return cards_df
+
 
 
 if __name__ == '__main__':
@@ -150,5 +186,5 @@ if __name__ == '__main__':
         packet_text = pdf_to_text('test_input/Packet A.pdf')
     elif 'doc' in choice.lower():
         packet_text = docx_to_text('test_input/Packet 1.docx')
-    packet_df = text_to_cards(packet_text, split_up=True, clean_up=True, write_to_file=False)
+    packet_df = text_to_cards(packet_text, write_to_file=False)
     print(packet_df)
