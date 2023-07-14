@@ -14,7 +14,7 @@ SPLIT_RE = re.compile(r"(?=ANSWER:)|" #answer line
                     r"(?<=\>)\s?[0-9]{1,2}\.\s|" #question-starting number
                     r"Tossups |"
                     r"Bonuses |"
-                    r"\[[10emh]{1,3}]\s?|" #part indicator
+                    r"\[10(?:e|m|h)\]\s?|\[(?:H|M|E)\]|" #part indicator
                     r"(?:__SPLIT__)")
 
 #TODO: figure out a better way to deal with "Bonuses" in BHSU packet 1
@@ -93,9 +93,13 @@ def text_to_cards(
         # the corresponding answer
         #TODO: create or import a more thorough FTPE_RE for edge cases and old questions
         #TODO: less dodgy way of dealing with the "Bonuses" in BHSU packet 1
-        if segment == 'Bonuses':
+        #TODO: deal with stray 'The theme of this bonus' type editors notes in a more
+        #refined manner
+        if (segment == 'Bonuses') or ('The theme of this bonus' in segment):
             continue
-        elif 'or 10 points each' in segment:
+        elif ('or 10 points each' in segment or 
+              'the stated number of points' in segment or
+              'answer the following' in segment):
             clues.append(segment)
             leadin_ans = re.sub('ANSWER: ', '', all_text[idx+2]) #TODO: fix magic number 2
             answers.append(leadin_ans)
@@ -134,7 +138,7 @@ def text_to_cards(
         packet_df.loc[:,'tags'] += f"yr::{yr} "
     packet_df.loc[:,'tags'] = packet_df.loc[:,'tags'].str.strip()
 
-    #TODO: maybe reset_index() here; final index is larger than df length
+    packet_df.reset_index(drop=True, inplace=True)
 
     if write_to_file:
         now = datetime.now().strftime("%Y%-m%d-%H%M%S")
@@ -165,8 +169,11 @@ def folder_to_cards(folder, write_out=True):
         elif '.docx' in filename:
             this_file_text = docx_to_text(full_name)
 
+        this_file_df = text_to_cards(this_file_text, write_to_file=False)
         print(f"Appending cards from {filename}...")
-        cards_df.append(text_to_cards(this_file_text, write_to_file=False))
+        cards_df = cards_df.append(this_file_df)
+
+    cards_df.reset_index(drop=True, inplace=True)
 
     if write_out:
         now = datetime.now().strftime("%Y%-m%d-%H%M%S")
@@ -181,10 +188,16 @@ def folder_to_cards(folder, write_out=True):
 
 
 if __name__ == '__main__':
-    choice = input("Cardify the PDF? Or the .docx? : ")
-    if 'pdf' in choice.lower():
-        packet_text = pdf_to_text('test_input/Packet A.pdf')
-    elif 'doc' in choice.lower():
-        packet_text = docx_to_text('test_input/Packet 1.docx')
-    packet_df = text_to_cards(packet_text, write_to_file=False)
+    choice = input("What do you want to cardify? PDF, docx, pdf folder, or docx folder?")
+    if 'folder' in choice.lower():
+        if 'pdf' in choice.lower():
+            packet_df = folder_to_cards('test_input/Regs23', write_out=False)
+        elif 'docx' in choice.lower():
+            packet_df = folder_to_cards('test_input/BHSU', write_out=False)
+    else:
+        if 'pdf' in choice.lower():
+            packet_text = pdf_to_text('test_input/Packet A.pdf')
+        elif 'docx' in choice.lower():
+            packet_text = docx_to_text('test_input/Packet 1.docx')
+        packet_df = text_to_cards(packet_text, write_to_file=False)
     print(packet_df)
