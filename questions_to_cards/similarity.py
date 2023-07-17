@@ -11,8 +11,6 @@ import time
 
 CLUES_FILEPATH = 'test_output/clues_2023512-104755.csv'
 
-#TODO: HAVE AN EMPIRICALLY DRIVEN TEST STRATEGY FOR FINDING THE BEST VALUES
-
 qb_stopwords = {'a', 'an', 'and', 'of', 'the', 'this', 'these'}
 more_stopwords = {'the', 'that', 'he', 'him', 'his', 'she', 'her', 'hers',
                    'is', 'are', 'work', 'works', 'who', 'which', 'was', 'were', 
@@ -46,23 +44,11 @@ def subset(clues_filepath, term, write_out=False):
     return subset
 
 
-#see how many answer lines there are.
-def unique_simple_answerlines(filepath=CLUES_FILEPATH):
-    df = pd.read_csv(filepath, sep='\t')
-    df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(lambda x:distill(str(x), answerline=True))
-    df.drop_duplicates(subset=['simple_answer'], inplace=True)
-    df = df.sort_values('simple_answer', ascending=True)
-    series = df.loc[:,'simple_answer']
-    print(series)
-    series.to_csv('unique_answers_0512.csv', sep='\t', escapechar='\\', index=False)
-
-
 def distill(clue: str, answerline=False) -> str:
     '''Distill a clue or answer line down by removing stopwords, spaces, and
-    punctuation to make string distance scores more robust.
+    punctuation to make Jaro-Winkler string distance score more robust.
     If it's an answer line, removes acceptable/promptable answers to expand
-    range of matching.
-    Makes string comparison scores more robust.'''
+    range of matching.'''
     if type(clue) != str:
         clue = str(clue)
 
@@ -82,6 +68,17 @@ def distill(clue: str, answerline=False) -> str:
     return ''.join(clue)
 
 
+def unique_simple_answerlines(filepath=CLUES_FILEPATH):
+    '''Determine how many unique answerlines there are in a clue DataFrame.'''
+    df = pd.read_csv(filepath, sep='\t')
+    df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(lambda x:distill(str(x), answerline=True))
+    df.drop_duplicates(subset=['simple_answer'], inplace=True)
+    df = df.sort_values('simple_answer', ascending=True)
+    series = df.loc[:,'simple_answer']
+    print(series)
+    series.to_csv('unique_answers_0512.csv', sep='\t', escapechar='\\', index=False)
+
+
 def wordify(clue: str, answerline=False):
     '''Convert a sentence/clue/answer into a set of unique non-stopword words.
     This prepares the input for Jaccard or overlap similarity comparisons.'''
@@ -90,8 +87,7 @@ def wordify(clue: str, answerline=False):
         REJECT_RE = r'(?:do not|don’t)\s(?:accept|prompt|take)\s|reject\s'
         # get rid of everything after reject/do not accept
         clue = re.split(REJECT_RE, clue)[0]
-    '''Reduce a string of natural language text to a "bag of words" or set of
-    the words it contains, removing common quizbowl stopwords.'''
+
     clue = re.sub(r'[^\w\s\d]', '', unidecode(clue.lower()))
     #consider doing some lemmatizing here
     word_set = {wd for wd in clue.split() if wd not in all_stopwords}
@@ -99,12 +95,6 @@ def wordify(clue: str, answerline=False):
         return {wd for wd in word_set if wd not in ans_stopwords}
     else:
         return word_set
-    #This used to use a Counter but the odds of a word repeating are very low so it was of minimal benefit
-    # counter = Counter([wd for wd in clue.split() if wd not in all_stopwords])
-    # if counts:
-    #     return counter
-    # else:
-    #     return set(counter.keys())
     
 
 def jaccard(clue1, clue2, debug=False):
@@ -121,9 +111,9 @@ def jaccard(clue1, clue2, debug=False):
     return len(shared) / len(all)
 
 
-def jaccard_compare(clue1, clue2, debug=False):
-    #figure out which threshold to set with trial and error
-    return (jaccard(clue1, clue2, debug=debug) >= 0.5)
+def jaccard_compare(clue1, clue2, threshold=0.5, debug=False):
+    '''Determine whether two clues' Jaccard similarity is above a desired threshold.'''
+    return (jaccard(clue1, clue2, debug=debug) >= threshold)
 
 
 def overlap(clue1, clue2, debug=False):
@@ -139,9 +129,9 @@ def overlap(clue1, clue2, debug=False):
     return len(shared) / min(len(bag1), len(bag2))
 
 
-def overlap_compare(clue1, clue2, debug=False):
-    #TODO: figure out which threshold to set with trial and error
-    return (overlap(clue1, clue2, debug=debug) >= 0.6)
+def overlap_compare(clue1, clue2, threshold=0.6, debug=False):
+    '''Determine whether two clues' overlap coefficient is above desired threshold.'''
+    return (overlap(clue1, clue2, debug=debug) >= threshold)
 
     
 def comparator_test(
