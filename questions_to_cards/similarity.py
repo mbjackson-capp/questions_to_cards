@@ -6,7 +6,6 @@ import re
 from unidecode import unidecode
 from tqdm import tqdm
 tqdm.pandas()
-from collections import Counter
 import time
 
 CLUES_FILEPATH = 'test_output/clues_2023512-104755.csv'
@@ -28,18 +27,47 @@ qb_punctuation = string.punctuation + '“”'
 
 pd.set_option('display.max_colwidth', 1000)
 
-#TODO: allow for making the term an answer / for subsetting by answerline
-#rather than clue (to check "ziran/Iran" type cases)
-def subset(clues_filepath, term, write_out=False):
-    '''Generate subsets for similarity comparison.'''
-    clues = pd.read_csv(clues_filepath, sep='\t')
-    term = term.lower()
+
+def subset(clues, ans_term=None, clue_term=None, write_out=False):
+    '''Generate subsets of a DataFrame for quicker similarity comparison.
+
+    Inputs:
+        - clues (string or DataFrame): can take a filepath string to import 
+        from filepath; otherwise, take an existing DataFrame of clues
+        - ans_term (string or None): term that must be in answer line upon
+        filtering.
+        - clue_term (string or None): term that must be in clue upon 
+        filtering. As of now, ans_term filter is applied FIRST, and having
+        a non-null value for both ans_term and clue_term produces the strict
+        INTERSECTION in which both are present. 
+        #TODO: Consider altering behavior to allow for UNION/OR.
+        - write_out (boolean): whether to write to file or not.
+    
+    Returns (pandas DataFrame): the subset you want.'''
+    if type(clues) == str:
+        clues = pd.read_csv(clues, sep='\t')
+
+    assert type(clues) == pd.core.frame.DataFrame, "You don't have a working df"
     #TODO: fix ValueError
-    subset = clues.loc[(clues.loc[:,'clue'].str.contains(term, flags=re.IGNORECASE)), :]
-    subset.reset_index(drop=True, inplace=True)
-    write_filepath = f'subset_{term}.csv'
+    if ans_term is None and clue_term is None:
+        return clues
+    
+    subset = clues
+
+    if ans_term is not None:
+        ans_term = ans_term.lower()
+        print(ans_term)
+        subset = subset.loc[(subset.loc[:,'answer'].str.contains(ans_term, flags=re.IGNORECASE)) &
+                           (~subset.loc[:,'answer'].isna()), :] #some answers are 'nan'
+        subset.reset_index(drop=True, inplace=True)
+    if clue_term is not None:
+        print(clue_term)
+        clue_term = clue_term.lower()
+        subset = subset.loc[(subset.loc[:,'clue'].str.contains(clue_term, flags=re.IGNORECASE)), :]
+        subset.reset_index(drop=True, inplace=True)
 
     if write_out:
+        write_filepath = f'subset_{ans_term}_{clue_term}.csv'
         subset.to_csv(write_filepath, sep='\t', escapechar='\\', index=False)
     return subset
 
@@ -142,7 +170,7 @@ def comparator_test(
     return func(str1, str2)
 
 
-def panda_comparison(clues_filepath, term='', start_at=None,
+def panda_comparison(clues_filepath, ans_term=None, clue_term=None, start_at=None,
                      ANS_THRESH = 0.8, CLUE_THRESH = 0.6, 
                      clue_func=jellyfish.jaro_distance):
     '''Core function for finding repetitious clues and deleting them.
@@ -165,7 +193,7 @@ def panda_comparison(clues_filepath, term='', start_at=None,
         DELETING prior rows
         
     Returns (df): the dataframe with repetitious rows deleted.'''
-    df = subset(clues_filepath, term)
+    df = subset(clues_filepath, ans_term, clue_term)
     print("Sorting dataframe by simplified answer line...")
     #TODO: allow for using wordify() instead of distill(), so as to allow for
     #overlap() later instead of jaro_distance
@@ -236,7 +264,7 @@ def panda_comparison(clues_filepath, term='', start_at=None,
 
 if __name__ == '__main__':
     print("Loading clue csv...")
-    panda_comparison(CLUES_FILEPATH, term='love suicides', 
+    panda_comparison(CLUES_FILEPATH, ans_term='love suicides', 
                      ANS_THRESH=0.7, CLUE_THRESH=0.6, 
                      clue_func=overlap)
 
