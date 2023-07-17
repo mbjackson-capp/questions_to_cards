@@ -170,7 +170,7 @@ def comparator_test(
     return func(str1, str2)
 
 
-def panda_comparison(clues_filepath, ans_term=None, clue_term=None, start_at=None,
+def panda_comparison(clues, ans_term=None, clue_term=None, start_at=None,
                      ANS_THRESH = 0.8, CLUE_THRESH = 0.6, 
                      clue_func=jellyfish.jaro_distance):
     '''Core function for finding repetitious clues and deleting them.
@@ -182,7 +182,8 @@ def panda_comparison(clues_filepath, ans_term=None, clue_term=None, start_at=Non
     #TODO: toggle progress bars
     
     Inputs:
-        -clues_filepath(str): location of clues DataFrame in directory
+        -clues_filepath(str or DataFrame): location of clues DataFrame in directory
+        or the DataFrame itself.
         #TODO: Make this flexible to take in df from other sources
         -term (str): used for subsetting the DataFrame to look only at clues
         that contain this substring. Greatly increases runtime
@@ -193,7 +194,8 @@ def panda_comparison(clues_filepath, ans_term=None, clue_term=None, start_at=Non
         DELETING prior rows
         
     Returns (df): the dataframe with repetitious rows deleted.'''
-    df = subset(clues_filepath, ans_term, clue_term)
+    #This call to subset() will load the filepath for you if necessary
+    df = subset(clues, ans_term, clue_term)
     print("Sorting dataframe by simplified answer line...")
     #TODO: allow for using wordify() instead of distill(), so as to allow for
     #overlap() later instead of jaro_distance
@@ -264,7 +266,15 @@ def panda_comparison(clues_filepath, ans_term=None, clue_term=None, start_at=Non
 
 if __name__ == '__main__':
     print("Loading clue csv...")
-    panda_comparison(CLUES_FILEPATH, ans_term='love suicides', 
+    clues = pd.read_csv(CLUES_FILEPATH, sep='\t')
+    ans_input = input("Choose phrase to filter answer line by, or type Enter to continue:")
+    if ans_input == '':
+        ans_input = None
+    clue_input = input("Choose phrase to filter clues by, or type Enter to continue:")
+    if clue_input == '':
+        clue_input = None
+
+    panda_comparison(clues, ans_term=ans_input, clue_term=clue_input, 
                      ANS_THRESH=0.7, CLUE_THRESH=0.6, 
                      clue_func=overlap)
 
