@@ -29,7 +29,8 @@ pd.set_option('display.max_colwidth', 1000)
 
 
 def subset(clues, ans_term=None, clue_term=None, write_out=False):
-    '''Generate subsets of a DataFrame for quicker similarity comparison.
+    '''
+    Generate subsets of a DataFrame for quicker similarity comparison.
 
     Inputs:
         - clues (string or DataFrame): can take a filepath string to import 
@@ -43,7 +44,8 @@ def subset(clues, ans_term=None, clue_term=None, write_out=False):
         #TODO: Consider altering behavior to allow for UNION/OR.
         - write_out (boolean): whether to write to file or not.
     
-    Returns (pandas DataFrame): the subset you want.'''
+    Returns (pandas DataFrame): the subset you want.
+    '''
     if type(clues) == str:
         clues = pd.read_csv(clues, sep='\t')
 
@@ -72,32 +74,41 @@ def subset(clues, ans_term=None, clue_term=None, write_out=False):
     return subset
 
 
-def distill(clue: str, answerline=False) -> str:
-    '''Distill a clue or answer line down by removing stopwords, spaces, and
+def distill(phrase: str, answerline=False, max_length=50) -> str:
+    '''
+    Distill a clue or answer line down by removing stopwords, spaces, and
     punctuation to make Jaro-Winkler string distance score more robust.
     If it's an answer line, removes acceptable/promptable answers to expand
-    range of matching.'''
-    if type(clue) != str:
-        clue = str(clue)
+    range of matching.
+    '''
+    if type(phrase) != str:
+        phrase = str(phrase)
 
     if answerline:
-        #clue = re.sub(r'\(.+\)|\[.+\]', '', clue)
+        #phrase = re.sub(r'\(.+\)|\[.+\]', '', phrase)
         REJECT_RE = r'(?:do not|don’t)\s(?:accept|prompt|take)\s|reject\s'
         # get rid of everything after reject/do not accept
-        clue = re.split(REJECT_RE, clue)[0]
+        phrase = re.split(REJECT_RE, phrase)[0]
 
     try:
-        clue = re.sub(r'[^\w\s\d]', '', unidecode(clue.lower()))
+        phrase = re.sub(r'[^\w\s\d]', '', unidecode(phrase.lower()))
     except AttributeError: #it gets 'nan' sometimes which messes it up
-        clue = re.sub(r'[^\w\s\d]', '', unidecode(clue.lower()))
-    clue = [word for word in clue.split() if word not in qb_stopwords]
+        phrase = re.sub(r'[^\w\s\d]', '', unidecode(phrase.lower()))
+    phrase = [word for word in phrase.split() if word not in qb_stopwords]
     if answerline:
-        clue = [word for word in clue if word not in ans_stopwords]
-    return ''.join(clue)
+        phrase = [word for word in phrase if word not in ans_stopwords]
+
+    distilled_phrase = ''.join(phrase)
+    if len(distilled_phrase) > max_length:
+        distilled_phrase = distilled_phrase[:max_length+1]
+    
+    return distilled_phrase
 
 
 def unique_simple_answerlines(filepath=CLUES_FILEPATH):
-    '''Determine how many unique answerlines there are in a clue DataFrame.'''
+    '''
+    Determine how many unique answerlines there are in a clue DataFrame.
+    '''
     df = pd.read_csv(filepath, sep='\t')
     df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(lambda x:distill(str(x), answerline=True))
     df.drop_duplicates(subset=['simple_answer'], inplace=True)
@@ -108,8 +119,10 @@ def unique_simple_answerlines(filepath=CLUES_FILEPATH):
 
 
 def wordify(clue: str, answerline=False):
-    '''Convert a sentence/clue/answer into a set of unique non-stopword words.
-    This prepares the input for Jaccard or overlap similarity comparisons.'''
+    '''
+    Convert a sentence/clue/answer into a set of unique non-stopword words.
+    This prepares the input for Jaccard or overlap similarity comparisons.
+    '''
     if answerline:
         #clue = re.sub(r'\(.+\)|\[.+\]', '', clue)
         REJECT_RE = r'(?:do not|don’t)\s(?:accept|prompt|take)\s|reject\s'
@@ -123,42 +136,35 @@ def wordify(clue: str, answerline=False):
         return {wd for wd in word_set if wd not in ans_stopwords}
     else:
         return word_set
-    
-
-def jaccard(clue1, clue2, debug=False):
-    '''Obtain the Jaccard similarity of two clues or answerlines.
-    https://stats.stackexchange.com/questions/289400/quantify-the-similarity-of-bags-of-words'''
-    bag1 = wordify(clue1)
-    bag2 = wordify(clue2)
-
-    shared = bag1 & bag2
-    all = bag1 | bag2
-    if debug:
-        print(f"Shared: {shared}")
-        print(f"Unique: {all - shared}")
-    return len(shared) / len(all)
-
-
-def jaccard_compare(clue1, clue2, threshold=0.5, debug=False):
-    '''Determine whether two clues' Jaccard similarity is above a desired threshold.'''
-    return (jaccard(clue1, clue2, debug=debug) >= threshold)
 
 
 def overlap(clue1, clue2, debug=False):
-    '''Calculate the overlap coefficient of two clues
-    https://en.wikipedia.org/wiki/Overlap_coefficient'''
+    '''
+    Calculate the overlap coefficient of two clues.
+    See https://en.wikipedia.org/wiki/Overlap_coefficient
+    '''
     bag1 = wordify(clue1)
     bag2 = wordify(clue2)
-
     shared = bag1 & bag2
+    
+    try:
+        overlap_coefficient = len(shared) / min(len(bag1), len(bag2))
+    except ZeroDivisionError:
+        overlap_coefficient = 1
+
     if debug:
         print(f"Shared: {len(shared)}")
         print(f"Bag 1 size: {len(bag1)}; Bag 2 size: {len(bag2)}")
-    return len(shared) / min(len(bag1), len(bag2))
+        print(f"Overlap coefficient: {overlap_coefficient}")
+    return overlap_coefficient
 
 
 def overlap_compare(clue1, clue2, threshold=0.6, debug=False):
-    '''Determine whether two clues' overlap coefficient is above desired threshold.'''
+    '''
+    Determine whether two clues' overlap coefficient is above desired threshold.
+    '''
+    if debug:
+        print(f"Threshold: {threshold}")
     return (overlap(clue1, clue2, debug=debug) >= threshold)
 
     
@@ -170,12 +176,19 @@ def comparator_test(
     return func(str1, str2)
 
 
-def panda_comparison(clues, ans_term=None, clue_term=None, start_at=None,
-                     ANS_THRESH = 0.8, CLUE_THRESH = 0.6, 
-                     clue_func=jellyfish.jaro_distance):
-    '''Core function for finding repetitious clues and deleting them.
+def panda_comparison(
+        clues, 
+        ans_term=None, 
+        clue_term=None, 
+        start_at=None,
+        ANS_THRESH = 0.7, 
+        CLUE_THRESH = 0.6, 
+        clue_func=overlap,
+        asc=True):
+    '''
+    Core function for finding repetitious clues and deleting them.
     Goes through each clue in the dataframe, uses Jaro-Winkler similarity (or
-    other methods tbd) to block on close-matching answers, uses methods tbd
+    other methods tbd) to block on close-matching answers, uses overlap comparison
     to find close-matching clues with a similar enough answer, and marks those
     similar-enough rows for deletion. At the end, deletes the marked rows.
 
@@ -193,7 +206,8 @@ def panda_comparison(clues, ans_term=None, clue_term=None, start_at=None,
         #TODO: Change this so it merely STARTS AT this answer rather than 
         DELETING prior rows
         
-    Returns (df): the dataframe with repetitious rows deleted.'''
+    Returns (df): the dataframe with repetitious rows deleted.
+    '''
     #This call to subset() will load the filepath for you if necessary
     df = subset(clues, ans_term, clue_term)
     print("Sorting dataframe by simplified answer line...")
@@ -204,7 +218,7 @@ def panda_comparison(clues, ans_term=None, clue_term=None, start_at=None,
     #Group all instances of each simplified answer line. This greatly reduces
     #runtime, by allowing us to calculate all matches for each simple answerline
     #only once, rather than each time the answerline appears.
-    df = df.sort_values('simple_answer', ascending=False)
+    df = df.sort_values('simple_answer', ascending=asc)
     if start_at is not None:
         df = df.loc[(df.loc[:,'simple_answer'] < start_at),:]
     df.reset_index(drop=True, inplace=True)
@@ -222,6 +236,7 @@ def panda_comparison(clues, ans_term=None, clue_term=None, start_at=None,
         #and cut runtime in half by ensuring each comparison happens only once
             # e.g. df.loc[row.Index+1:].loc[:, 'ans_similarity'] =
         if row.simple_answer != prev_answer: 
+            print("Calculating answer similarities for other rows...")
             # answer line has changed. recalculate. otherwise keep past calculation
             df.loc[:,'ans_similarity'] = df.loc[:,'answer'].apply(lambda x: jellyfish.jaro_distance(distill(str(x), answerline=True), 
                                                                                                             distill(str(row.answer), answerline=True)))
@@ -243,6 +258,7 @@ def panda_comparison(clues, ans_term=None, clue_term=None, start_at=None,
 
         #does latter option actually speed things up?
         #matches = df.loc[DEL_MASK, :] # Option 1
+        print("Checking for clue matches....")
         matches = df.loc[row.Index:, :].loc[DEL_MASK, :] # Option 2
 
         if len(matches) > 0:
@@ -274,8 +290,11 @@ if __name__ == '__main__':
     if clue_input == '':
         clue_input = None
 
-    panda_comparison(clues, ans_term=ans_input, clue_term=clue_input, 
-                     ANS_THRESH=0.7, CLUE_THRESH=0.6, 
-                     clue_func=overlap)
+    panda_comparison(
+        clues, 
+        ans_term=ans_input, 
+        clue_term=clue_input, 
+        clue_func=overlap
+        )
 
 
