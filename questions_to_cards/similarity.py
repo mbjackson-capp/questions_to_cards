@@ -1,4 +1,4 @@
-import jellyfish
+import jellyfish as jf
 import pandas as pd
 import numpy as np
 import string
@@ -169,15 +169,90 @@ def overlap_compare(clue1, clue2, threshold=0.6, debug=False):
 
     
 def comparator_test(
-        func=jellyfish.jaro_distance,
+        func=jf.jaro_distance,
         str1="Name this American poet of “Lady Lazarus,” “Daddy,” and The Bell Jar.",
         str2 = "Name this poet of “Ariel” and “Daddy” as well as The Bell Jar."
 ):
     return func(str1, str2)
 
 
+def naive_remove_redundant_cards(
+        clue_df,
+        ANS_THRESH = 0.7,
+        CLUE_THRESH = 0.6,
+):
+    '''
+    Generate a "simplified answer line" for every row.
+    Then for each row in the dataframe, compare that row against all (remaining)
+    rows later than it. If their answers have similar enough Jaro-Winkler similarity
+    and the clues have a high enough percentage of overlapping words, mark
+    the row with the shorter clue for deletion
+
+    This function is for prototyping purposes only, to demonstrate the desired
+    logic for row similarity comparison and removal. It will be extremely slow
+    on large Pandas dataframes -- i.e. O(n^2). 
+
+    TODO: Implement vectorized optimizations and perhaps parallel programming
+    for significant speedup.
+    '''
+    #TODO: be more sure this isn't altering original df
+    clue_df = clue_df.copy(deep=True)
+    clue_df.loc[:,'simple_answer'] = clue_df.loc[:,'answer'].progress_apply(
+        lambda x:distill(str(x), answerline=True)
+    )
+
+    rows_to_delete = 0
+    for idx, row_a in clue_df.iterrows():
+        print(f"\nStarting row {idx}")
+        if row_a.clue == '_DEL_':
+            print(f"Row {idx} has already been marked for deletion. Continuing")
+            continue
+
+        for jdx, row_b in clue_df.loc[idx+1:,:].iterrows():
+            if row_b.clue == '_DEL_':
+                print(f"Row {jdx} has already been marked for deletion. Continuing")
+                continue
+
+            print(f"Comparing row {idx} to row {jdx}")
+            print(f"Overlap of {row_a.simple_answer}, {row_b.simple_answer}:")
+            answer_similarity = jf.jaro_distance(row_a.simple_answer, row_b.simple_answer)
+            print(answer_similarity)
+
+            if answer_similarity > ANS_THRESH:
+                print(f"\nOverlap of clues...")
+                print(row_a.clue)
+                print(row_b.clue)
+                clue_similarity = overlap(row_a.clue, row_b.clue)
+                print(clue_similarity)
+                
+                if clue_similarity > CLUE_THRESH:
+                    row_a_size = len(wordify(row_a.clue))
+                    row_b_size = len(wordify(row_b.clue))
+                    print(f"Row {idx} size: {row_a_size}; Row {jdx} size: {row_b_size}")
+                    if row_a_size > row_b_size:
+                        print(f"Row {jdx} has fewer words. Delete it")
+                        clue_df.loc[jdx, 'clue'] = '_DEL_'
+                        clue_df.loc[jdx, 'answer'] = '_DEL_'
+                        rows_to_delete += 1
+                    elif row_a_size == row_b_size:
+                        print(f"Rows {idx} and {jdx} have the same number of unique words. Continue")
+                        continue
+                    elif row_b_size > row_a_size:
+                        print(f"Row {idx} has fewer words. Delete it and move on to next row")
+                        clue_df.loc[idx, 'clue'] = '_DEL_'
+                        clue_df.loc[idx, 'answer'] = '_DEL_'
+                        rows_to_delete += 1
+                        break
+            else:
+                print("Not similar enough. Continuing\n")
+
+    print(f"{rows_to_delete} rows marked for deletion.")
+    clue_df = clue_df.loc[~(clue_df.loc[:,'clue'] == '_DEL_'), :]
+    print(f"Deletion complete. {len(clue_df)} rows remain.")
+    return clue_df
+
 def panda_comparison(
-        clues, 
+        clue_df, 
         ans_term=None, 
         clue_term=None, 
         start_at=None,
@@ -209,7 +284,7 @@ def panda_comparison(
     Returns (df): the dataframe with repetitious rows deleted.
     '''
     #This call to subset() will load the filepath for you if necessary
-    df = subset(clues, ans_term, clue_term)
+    df = subset(clue_df, ans_term, clue_term)
     print("Sorting dataframe by simplified answer line...")
     #TODO: allow for using wordify() instead of distill(), so as to allow for
     #overlap() later instead of jaro_distance
@@ -238,7 +313,7 @@ def panda_comparison(
         if row.simple_answer != prev_answer: 
             print("Calculating answer similarities for other rows...")
             # answer line has changed. recalculate. otherwise keep past calculation
-            df.loc[:,'ans_similarity'] = df.loc[:,'answer'].apply(lambda x: jellyfish.jaro_distance(distill(str(x), answerline=True), 
+            df.loc[:,'ans_similarity'] = df.loc[:,'answer'].apply(lambda x: jf.jaro_distance(distill(str(x), answerline=True), 
                                                                                                             distill(str(row.answer), answerline=True)))
 
         #Answer similarity needs to have its own proper threshold determined. Consider things like middle names
