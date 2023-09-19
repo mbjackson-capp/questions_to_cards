@@ -96,7 +96,7 @@ def distill(
         phrase = re.split(REJECT_RE, phrase)[0]
 
     if remove_brackets:
-        phrase = re.sub(r'\[.+\]|\(.+\)|{.+}', '', phrase)
+        phrase = re.sub(r'\[[^\[]+\]|\([^\(]+\)|{[^\{]+}', '', phrase)
 
     try:
         phrase = re.sub(r'[^\w\s\d]', '', unidecode(phrase.lower()))
