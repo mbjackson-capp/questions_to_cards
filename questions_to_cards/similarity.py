@@ -7,6 +7,7 @@ from unidecode import unidecode
 from tqdm import tqdm
 tqdm.pandas()
 import time
+from collections import Counter
 
 CLUES_FILEPATH = 'test_output/clues_2023512-104755.csv'
 
@@ -263,6 +264,7 @@ def remove_redundancies(
         clue_term=None, 
         start_at=None,
         end_at=None,
+        skip_thresh=None,
         ans_thresh = 0.7, 
         clue_thresh = 0.6,
         ans_func=jf.jaro_distance, 
@@ -301,6 +303,12 @@ def remove_redundancies(
         -end_at (str or None): used to subset the DataFrame to look only at
         answerlines up to this point (e.g., 'end_at=jaws' allows for ending
         redundancy removal at the answer line 'Jaws')
+        -skip_thresh (int or None): if an integer, represents the minimum number
+        of occurrences a simple answer should have in order to be evaluated. For
+        example, if skip_thresh == 3, the function will not recalculate similarity
+        scores for simple answers that occur only 2 times or 1 time in the
+        underlying df. This saves time when the clue df is large and full of
+        relatively rare answer lines that are unlikely to have matching clues.
         -ans_thresh (float): threshold value for answer similarity score, above
         which two answers will be considered to match.
         -clue_thresh (float): thresold value for clue similarity score, above
@@ -317,7 +325,6 @@ def remove_redundancies(
         
     Returns (df): the dataframe with repetitious rows deleted.
     '''
-    # this will do nothing if ans_term and clue_term are None
     if ans_term is not None or clue_term is not None:
         print("Subsetting dataframe...")
     df = subset(clue_df, ans_term, clue_term)
@@ -329,6 +336,9 @@ def remove_redundancies(
             )
     else:
         df.loc[:,'simple_answer'] = df.loc[:,'answer']
+
+    print("Counting frequency of each simplified answer...")
+    simple_ans_freqs = Counter(df.loc[:,'simple_answer'])
 
     print("Calculating number of unique words in each clue...")
     df.loc[:,'bag_size'] = df.loc[:,'clue'].progress_apply(
@@ -358,6 +368,13 @@ def remove_redundancies(
             continue 
         else:
             print(f"\nanswer: {row.answer}\nclue: {row.clue}")
+        
+        this_ans_freq = simple_ans_freqs[row.simple_answer]
+        if skip_thresh is not None and this_ans_freq < skip_thresh:
+            print(f"This answer occurs only {this_ans_freq} times. Not often enough to calculate scores")
+            print("Skipping")
+            continue
+
         if row.simple_answer != prev_answer:
             print("Recalculating similarity scores...")
             #Recalculate ans_similarity for all rows AFTER this one
@@ -400,7 +417,7 @@ def remove_redundancies(
         if len(df.loc[BIGGER_ROWS_MASK, :]) > 0:
             # TODO: Show the clue(s) that are longer that necessitated deleting this one
             print("THIS ROW IS SHORTER THAN A MATCHING CLUE. MARKING IT FOR DELETION...")
-            print("For reference, here is a LONGER row we are KEEPING:")
+            print("(For reference, here is a LONGER row we are KEEPING:)")
             print(df.loc[BIGGER_ROWS_MASK,:].sample(1))
             df.loc[idx, ['clue', 'answer', 'simple_answer']] = '_DEL_'
             df.loc[idx, 'bag_size'] = 0
