@@ -74,7 +74,11 @@ def subset(clues, ans_term=None, clue_term=None, write_out=False):
     return subset
 
 
-def distill(phrase: str, answerline=False, max_length=50) -> str:
+def distill(
+        phrase: str, 
+        answerline=False,
+        remove_brackets=True, 
+        max_length=50) -> str:
     '''
     Distill a clue or answer line down by removing stopwords, spaces, and
     punctuation to make Jaro-Winkler string distance score more robust.
@@ -89,6 +93,9 @@ def distill(phrase: str, answerline=False, max_length=50) -> str:
         REJECT_RE = r'(?:do not|don’t)\s(?:accept|prompt|take)\s|reject\s'
         # get rid of everything after reject/do not accept
         phrase = re.split(REJECT_RE, phrase)[0]
+
+    if remove_brackets:
+        phrase = re.sub(r'\[.+\]|\(.+\)', '', phrase)
 
     try:
         phrase = re.sub(r'[^\w\s\d]', '', unidecode(phrase.lower()))
@@ -343,7 +350,7 @@ def remove_redundancies(
     rows_marked_del = 0
 
     for idx, row in df.iterrows():
-        print(f"NOW CONSIDERING ROW {idx}.")
+        print(f"\nNOW CONSIDERING ROW {idx}.")
         # we can't check if row.clue == '_DEL_' because the underlying df mutates 
         # as we go, but the iterrows() object does NOT mutate.
         if df.loc[idx, 'clue'] == '_DEL_':
@@ -364,9 +371,10 @@ def remove_redundancies(
                           (df.loc[:,'clue'] != '_DEL_'))
         IDX_MASK = (df.index > idx)
         if len(df.loc[ANS_MATCH_MASK & IDX_MASK,:]) > 0:
-            print("MATCHING ANSWERS:")
+            #print("MATCHING ANSWERS:")
             #here's where I really want to specify a view rather than a copy
-            print(df.loc[ANS_MATCH_MASK & IDX_MASK,:])
+            #print(df.loc[ANS_MATCH_MASK & IDX_MASK,:])
+            pass
         else:
             print("NO MATCHING ANSWERS")
             continue #TODO: consider nesting the if clauses for these masks instead of
@@ -381,10 +389,11 @@ def remove_redundancies(
 
         CLUE_MATCH_MASK = (df.loc[:,'clue_similarity'] > clue_thresh)
         if len(df.loc[ANS_MATCH_MASK & CLUE_MATCH_MASK & IDX_MASK,:]) > 0:
-            print("MATCHING ANSWERS AND CLUES:")
-            print(df.loc[ANS_MATCH_MASK & CLUE_MATCH_MASK & IDX_MASK,:])
+            # print("MATCHING ANSWERS AND CLUES:")
+            # print(df.loc[ANS_MATCH_MASK & CLUE_MATCH_MASK & IDX_MASK,:])
+            pass
         else:
-            print("NO MATCHING CLUES WITHIN THAT")
+            print("NO MATCHING CLUES")
             continue
 
         # within those, use panda selectors to get ones where the wordify_bag_size < 
@@ -392,143 +401,38 @@ def remove_redundancies(
         SMALLER_MASK = (df.loc[:,'bag_size'] < row.bag_size)
         DEL_MASK = ANS_MATCH_MASK & CLUE_MATCH_MASK & SMALLER_MASK & IDX_MASK
         if len(df.loc[DEL_MASK, :]) > 0:
-            print("OF THOSE, THESE ARE SMALLER:")
-            print(df.loc[DEL_MASK, :])
+            #print("OF THOSE, THESE ARE SMALLER:")
+            #print(df.loc[DEL_MASK, :])
             print(f"{len(df.loc[DEL_MASK, :])} rows ready to be marked for deletion")
+            print(df.loc[DEL_MASK, :])
             # mark all such rows for deletion
             df.loc[DEL_MASK, ['clue', 'answer', 'simple_answer']] = '_DEL_'
             df.loc[DEL_MASK, 'bag_size'] = 0
             rows_marked_del += len(df.loc[DEL_MASK, :])
-            print("Here's what the df looks like there after deletion attempt:")
-            print(df.loc[DEL_MASK, ['clue', 'answer', 'simple_answer', 'bag_size']])
         else:
-            print("OF THOSE, NONE ARE SMALLER")
+            print("OF MATCHING CLUES, NONE ARE SMALLER")
 
         # within those, if ANY has a wordify_bag_size > this row's wordify_bag_size:
         BIGGER_MASK = (df.loc[:,'bag_size'] > row.bag_size)
         if len(df.loc[ANS_MATCH_MASK & CLUE_MATCH_MASK & BIGGER_MASK & IDX_MASK, :]) > 0:
-            # mark *this* row '_DEL_' (and set its wordify_bag_size to 0)
+            # TODO: Show the clue(s) that are longer that necessitated deleting this one
             print("THIS ROW IS SHORTER THAN A MATCHING CLUE. MARKING IT FOR DELETION...")
             df.loc[idx, ['clue', 'answer', 'simple_answer']] = '_DEL_'
             df.loc[idx, 'bag_size'] = 0
             rows_marked_del += 1
 
+        print(f"Rows marked for deletion so far: {rows_marked_del}")
+
     print(f"{rows_marked_del} total rows marked for deletion")
-    df = df.loc[:,["clue", "answer", "tags"]]
-    print([col for col in df])
-    return df
-
- 
-
-
-def panda_comparison(
-        clue_df, 
-        ans_term=None, 
-        clue_term=None, 
-        start_at=None,
-        ANS_THRESH = 0.7, 
-        CLUE_THRESH = 0.6, 
-        clue_func=overlap,
-        asc=True
-):
-    '''
-    OLD function for finding repetitious clues and deleting them.
-    Goes through each clue in the dataframe, uses Jaro-Winkler similarity (or
-    other methods tbd) to block on close-matching answers, uses overlap comparison
-    to find close-matching clues with a similar enough answer, and marks those
-    similar-enough rows for deletion. At the end, deletes the marked rows.
-
-    #TODO: toggle progress bars
-    
-    Inputs:
-        -clues_filepath(str or DataFrame): location of clues DataFrame in directory
-        or the DataFrame itself.
-        #TODO: Make this flexible to take in df from other sources
-        -term (str): used for subsetting the DataFrame to look only at clues
-        that contain this substring. Greatly increases runtime
-        -start_at (str or None): used to subset the DataFrame to look only at
-        answerlines that start after this point (e.g., 'start_at=aarom' allows
-        for starting at the answer line 'Aaron'.)
-        #TODO: Change this so it merely STARTS AT this answer rather than 
-        DELETING prior rows
-        
-    Returns (df): the dataframe with repetitious rows deleted.
-    '''
-    #This call to subset() will load the filepath for you if necessary
-    df = subset(clue_df, ans_term, clue_term)
-    print("Sorting dataframe by simplified answer line...")
-    #TODO: allow for using wordify() instead of distill(), so as to allow for
-    #overlap() later instead of jaro_distance
-    df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(lambda x:distill(str(x), 
-                                                                  answerline=True))
-    #Group all instances of each simplified answer line. This greatly reduces
-    #runtime, by allowing us to calculate all matches for each simple answerline
-    #only once, rather than each time the answerline appears.
-    df = df.sort_values('simple_answer', ascending=asc)
-    if start_at is not None:
-        df = df.loc[(df.loc[:,'simple_answer'] < start_at),:]
-    df.reset_index(drop=True, inplace=True)
-    df.loc[:,'clue_similarity'] = 0.0
-    df.loc[:,'ans_similarity'] = 0.0
-    prev_answer = None
-    total_matches = 0
-    for row in df.itertuples():
-        print(row.Index, row.simple_answer)
-        if df.loc[row.Index, 'clue'] == '_DEL_' or df.loc[row.Index, 'answer'] == '_DEL_':
-            print(f"Row {row.Index} has been marked for deletion. Continuing")
-            continue
-
-        #TODO: look only at rows later than this one, to emulate "nested for loop" behavior
-        #and cut runtime in half by ensuring each comparison happens only once
-            # e.g. df.loc[row.Index+1:].loc[:, 'ans_similarity'] =
-        if row.simple_answer != prev_answer: 
-            print("Calculating answer similarities for other rows...")
-            # answer line has changed. recalculate. otherwise keep past calculation
-            df.loc[:,'ans_similarity'] = df.loc[:,'answer'].apply(lambda x: jf.jaro_distance(distill(str(x), answerline=True), 
-                                                                                                            distill(str(row.answer), answerline=True)))
-
-        #Answer similarity needs to have its own proper threshold determined. Consider things like middle names
-        #TODO: Look at only rows later than this one
-        ANS_MATCH_MASK = (df.loc[:,'ans_similarity'] > ANS_THRESH)
-
-        df.loc[ANS_MATCH_MASK, 'clue_similarity'] = \
-            df.loc[ANS_MATCH_MASK, 'clue'].apply(lambda x: clue_func(x, row.clue))
-        
-        #kludge so THIS row doesn't delete itself for perfectly matching itself
-        df.loc[row.Index,'clue_similarity'] = 0.0
-        df.loc[row.Index, 'ans_similarity'] = 0.0
-
-        #TODO: keep testing if tweaks to this improve results
-        CLUE_MATCH_MASK = (df.loc[:,'clue_similarity'] > CLUE_THRESH)
-        DEL_MASK = ANS_MATCH_MASK & CLUE_MATCH_MASK
-
-        #does latter option actually speed things up?
-        #matches = df.loc[DEL_MASK, :] # Option 1
-        print("Checking for clue matches....")
-        matches = df.loc[row.Index:, :].loc[DEL_MASK, :] # Option 2
-
-        if len(matches) > 0:
-            print("One or more matches!")
-            print(f"This clue: {row.clue}")
-            print(matches)
-            total_matches += len(matches)
-            df.loc[DEL_MASK, 'clue'] = '_DEL_'
-            df.loc[DEL_MASK, 'answer'] = '_DEL_'
-        
-        prev_answer = str(row.simple_answer)
-    
-    print(f'\n{len(df)}')
-    print(f"{total_matches} MATCHING CLUES FOUND")
-    df = df.loc[~(df.loc[:,'clue'] == '_DEL_'), :]
-    print("...AND DELETED")
-    print(f"{len(df)} CLUES REMAIN")
-
+    df = df.loc[(df.loc[:,'clue'] != '_DEL_'),["clue", "answer", "tags"]]
+    print("Redundant row deletion complete")
     return df
 
 
 if __name__ == '__main__':
     print("Loading clue csv...")
-    clues = pd.read_csv(CLUES_FILEPATH, sep='\t')
+    clues = pd.read_csv("test_output/clues_sample_10k.csv", sep="\t")
+    #clues = pd.read_csv(CLUES_FILEPATH, sep='\t')
     # ans_input = input("Choose phrase to filter answer line by, or type Enter to continue:")
     # if ans_input == '':
     #     ans_input = None
@@ -536,9 +440,6 @@ if __name__ == '__main__':
     # if clue_input == '':
     #     clue_input = None
 
-    remove_redundancies(
-        clues,
-        clue_term="Guernica"
-        )
+    remove_redundancies(clues)
 
 
