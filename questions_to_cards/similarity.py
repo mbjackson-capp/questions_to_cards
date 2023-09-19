@@ -8,6 +8,9 @@ from tqdm import tqdm
 tqdm.pandas()
 import time
 from collections import Counter
+import spacy
+
+nlp = spacy.load("en_core_web_sm", exclude=["parser", "ner"])
 
 CLUES_FILEPATH = 'test_output/clues_2023512-104755.csv'
 
@@ -79,6 +82,7 @@ def distill(
         phrase: str, 
         answerline=False,
         remove_brackets=True, 
+        lemmatize=False,
         max_length=50) -> str:
     '''
     Distill a clue or answer line down by removing stopwords, spaces, and
@@ -106,7 +110,14 @@ def distill(
     if answerline:
         phrase = [word for word in phrase if word not in ans_stopwords]
 
-    distilled_phrase = ''.join(phrase)
+    #TODO: lemmatize each word in phrase, quickly
+    #Source: https://www.machinelearningplus.com/nlp/lemmatization-examples-python/
+    if lemmatize:
+        doc = nlp(' '.join(phrase))
+        distilled_phrase = ''.join([token.lemma_ for token in doc])
+    else:
+        distilled_phrase = ''.join(phrase)
+
     if len(distilled_phrase) > max_length:
         distilled_phrase = distilled_phrase[:max_length+1]
     
@@ -126,7 +137,7 @@ def unique_simple_answerlines(filepath=CLUES_FILEPATH):
     series.to_csv('unique_answers_0512.csv', sep='\t', escapechar='\\', index=False)
 
 
-def wordify(clue: str, answerline=False):
+def wordify(clue, answerline=False, lemmatize=False):
     '''
     Convert a sentence/clue/answer into a set of unique non-stopword words.
     This prepares the input for Jaccard or overlap similarity comparisons.
@@ -138,21 +149,35 @@ def wordify(clue: str, answerline=False):
         clue = re.split(REJECT_RE, clue)[0]
 
     clue = re.sub(r'[^\w\s\d]', '', unidecode(clue.lower()))
-    #consider doing some lemmatizing here
-    word_set = {wd for wd in clue.split() if wd not in all_stopwords}
+
+    if lemmatize:
+        doc = nlp(clue)
+        word_set = {token.lemma_ for token in doc}
+        word_set = {wd for wd in word_set if wd not in all_stopwords}
+    else:
+        word_set = {wd for wd in clue.split() if wd not in all_stopwords}
+
     if answerline:
         return {wd for wd in word_set if wd not in ans_stopwords}
     else:
         return word_set
 
 
-def overlap(clue1, clue2, debug=False):
+def overlap(clue1: str, clue2: str, debug=False):
     '''
-    Calculate the overlap coefficient of two clues.
+    Calculate the overlap coefficient of two text clues by converting them
+    into sets of unique words and then finding the overlap of those sets.
     See https://en.wikipedia.org/wiki/Overlap_coefficient
-    '''
+    '''    
     bag1 = wordify(clue1)
     bag2 = wordify(clue2)
+    return set_overlap(bag1, bag2, debug=debug)
+
+def set_overlap(bag1: set, bag2: set, debug=False):
+    '''
+    Calculate the overlap coefficient of two sets of strings (bags of unique words).
+    Helper function for overlap().
+    '''
     shared = bag1 & bag2
     
     try:
@@ -270,6 +295,7 @@ def remove_redundancies(
         ans_func=jf.jaro_distance, 
         clue_func=overlap,
         simplify_answers=True,
+        lemmatize_answers=False,
         asc=True       
 ):
     '''
@@ -320,6 +346,8 @@ def remove_redundancies(
         a different similarity function.
         -simplify_answers (boolean): Determines whether answers are simplified
         prior to comparison. Should be set to True.
+        -lemmatize_answers (boolean): Determines whether simplified answers are
+        lemmatized prior to comparison. Will add many minutes up-front to run time.
         -asc (boolean): Determines whether simplified answer lines are sorted
         alphabetically (0-Z, True) or in reverse alphabetical order (Z-0, False).
         
@@ -332,7 +360,7 @@ def remove_redundancies(
     print("Generating simplified answer lines for every row...")
     if simplify_answers:
         df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(
-            lambda x:distill(str(x), answerline=True)
+            lambda x:distill(str(x), answerline=True, lemmatize=lemmatize_answers)
             )
     else:
         df.loc[:,'simple_answer'] = df.loc[:,'answer']
@@ -383,9 +411,13 @@ def remove_redundancies(
                 )
             prev_answer = row.simple_answer
 
+            #TODO: consider generating ANS_MATCH_MASK up here
+            ANS_MATCH_MASK = ((df.loc[:,'ans_similarity'] > ans_thresh) &
+                              (df.loc[:,'clue'] != '_DEL_'))
+
         # Get matching answers later than this one
-        ANS_MATCH_MASK = ((df.loc[:,'ans_similarity'] > ans_thresh) &
-                          (df.loc[:,'clue'] != '_DEL_'))
+        # ANS_MATCH_MASK = ((df.loc[:,'ans_similarity'] > ans_thresh) &
+        #                   (df.loc[:,'clue'] != '_DEL_'))
         IDX_MASK = (df.index > idx)
 
         # Within that, get matching clues
