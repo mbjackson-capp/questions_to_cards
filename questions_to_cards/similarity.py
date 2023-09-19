@@ -370,15 +370,6 @@ def remove_redundancies(
         ANS_MATCH_MASK = ((df.loc[:,'ans_similarity'] > ans_thresh) &
                           (df.loc[:,'clue'] != '_DEL_'))
         IDX_MASK = (df.index > idx)
-        if len(df.loc[ANS_MATCH_MASK & IDX_MASK,:]) > 0:
-            #print("MATCHING ANSWERS:")
-            #here's where I really want to specify a view rather than a copy
-            #print(df.loc[ANS_MATCH_MASK & IDX_MASK,:])
-            pass
-        else:
-            print("NO MATCHING ANSWERS")
-            continue #TODO: consider nesting the if clauses for these masks instead of
-            # making them sequential. though that could be less readable
 
         # Within that, get matching clues
         #TODO: Check if this is being calculated right. Values sometimes seem too small
@@ -388,21 +379,12 @@ def remove_redundancies(
                 )
 
         CLUE_MATCH_MASK = (df.loc[:,'clue_similarity'] > clue_thresh)
-        if len(df.loc[ANS_MATCH_MASK & CLUE_MATCH_MASK & IDX_MASK,:]) > 0:
-            # print("MATCHING ANSWERS AND CLUES:")
-            # print(df.loc[ANS_MATCH_MASK & CLUE_MATCH_MASK & IDX_MASK,:])
-            pass
-        else:
-            print("NO MATCHING CLUES")
-            continue
 
         # within those, use panda selectors to get ones where the wordify_bag_size < 
         # this row's wordify_bag_size
         SMALLER_MASK = (df.loc[:,'bag_size'] < row.bag_size)
         DEL_MASK = ANS_MATCH_MASK & CLUE_MATCH_MASK & SMALLER_MASK & IDX_MASK
         if len(df.loc[DEL_MASK, :]) > 0:
-            #print("OF THOSE, THESE ARE SMALLER:")
-            #print(df.loc[DEL_MASK, :])
             print(f"{len(df.loc[DEL_MASK, :])} rows ready to be marked for deletion")
             print(df.loc[DEL_MASK, :])
             # mark all such rows for deletion
@@ -410,13 +392,16 @@ def remove_redundancies(
             df.loc[DEL_MASK, 'bag_size'] = 0
             rows_marked_del += len(df.loc[DEL_MASK, :])
         else:
-            print("OF MATCHING CLUES, NONE ARE SMALLER")
+            print("NO MATCHING CLUES OF SMALLER LENGTH FOUND")
 
         # within those, if ANY has a wordify_bag_size > this row's wordify_bag_size:
         BIGGER_MASK = (df.loc[:,'bag_size'] > row.bag_size)
-        if len(df.loc[ANS_MATCH_MASK & CLUE_MATCH_MASK & BIGGER_MASK & IDX_MASK, :]) > 0:
+        BIGGER_ROWS_MASK = ANS_MATCH_MASK & CLUE_MATCH_MASK & BIGGER_MASK & IDX_MASK
+        if len(df.loc[BIGGER_ROWS_MASK, :]) > 0:
             # TODO: Show the clue(s) that are longer that necessitated deleting this one
             print("THIS ROW IS SHORTER THAN A MATCHING CLUE. MARKING IT FOR DELETION...")
+            print("For reference, here is a LONGER row we are KEEPING:")
+            print(df.loc[BIGGER_ROWS_MASK,:].sample(1))
             df.loc[idx, ['clue', 'answer', 'simple_answer']] = '_DEL_'
             df.loc[idx, 'bag_size'] = 0
             rows_marked_del += 1
