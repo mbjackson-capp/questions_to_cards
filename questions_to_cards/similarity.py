@@ -387,7 +387,8 @@ def remove_redundancies(
 
     rows_marked_del = 0
 
-    for idx, row in df.iterrows():
+    for row in df.itertuples():
+        idx = row.Index
         print(f"\nNOW CONSIDERING ROW {idx}.")
         # we can't check if row.clue == '_DEL_' because the underlying df mutates 
         # as we go, but the iterrows() object does NOT mutate.
