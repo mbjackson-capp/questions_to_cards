@@ -4,6 +4,7 @@ from datetime import datetime
 import re
 import pandas as pd
 import os
+import time
 
 from text_processing import tokenize_and_explode, cleanup
 from utility import write_out
@@ -75,6 +76,7 @@ def docx_to_text(packet_filepath):
 
     return all_text
 
+
 def text_to_cards(
         all_text: list,
         diff=None, 
@@ -101,7 +103,8 @@ def text_to_cards(
               'the stated number of points' in segment or
               'answer the following' in segment):
             clues.append(segment)
-            leadin_ans = re.sub('ANSWER: ', '', all_text[idx+2]) #TODO: fix magic number 2
+            #idx+2 looks ahead to answer line for part 1 of bonus
+            leadin_ans = re.sub('ANSWER: ', '', all_text[idx+2])
             answers.append(leadin_ans)
         elif 'ANSWER: ' in segment:
             segment = re.sub('ANSWER: ', '', segment)
@@ -148,31 +151,59 @@ def text_to_cards(
         print("Write-out complete")
     else:
         return packet_df
+    
 
-def folder_to_cards(folder, write_out=True):
+def get_all_filenames(starting_dir):
     '''
-    Convert all .docx and .pdf files in a folder into an Anki-importable csv
-    of cards. 
+    Walk a directory recursively and get out every file that could be a packet.
+    Helper function for directory_to_cards().
+
+    Closely modeled on:
+    https://www.bogotobogo.com/python/python_traversing_directory_tree_recursively_os_walk.php
+    '''
+    all_names = []
+    for root, _, f_names in os.walk(starting_dir):
+        for f in f_names:
+            this_name = os.path.join(root, f)
+            if this_name.endswith(".docx") or this_name.endswith(".pdf"):
+                all_names.append(this_name)
+    return all_names
+
+
+def directory_to_cards(rootdir, write_out=True):
+    '''
+    Convert all .docx and .pdf files in a directory into an Anki-importable csv
+    of cards. Operates recursively, so that sub-folders within folders are
+    located and card-ified too.
+
     Inputs:
-        -folder (str): Name of the directory to be carded
+        -rootdir (str): Name of the root folder containing all other subfolders
+        and packet files
         -write_out (boolean): whether to write out the resulting df to .csv
         or return it in-environment
-    Returns (pandas DataFrame): cards
+    Returns (pandas DataFrame): cards    
     '''
     cards_df = pd.DataFrame(columns=['clue', 'answer', 'tags'])
 
-    for filename in os.listdir(folder):
-        full_name = folder + '/' + filename
-        print(os.path.abspath(full_name))
+    all_files = get_all_filenames(rootdir)
+    print(all_files)
+    
+    for filename in all_files:
         if '.pdf' in filename:
-            this_file_text = pdf_to_text(full_name)
+            this_file_text = pdf_to_text(filename)
         elif '.docx' in filename:
-            this_file_text = docx_to_text(full_name)
+            this_file_text = docx_to_text(filename)
 
-        this_file_df = text_to_cards(this_file_text, write_to_file=False)
-        print(f"Appending cards from {filename}...")
-        cards_df = cards_df.append(this_file_df)
+        try:
+            this_file_df = text_to_cards(this_file_text, write_to_file=False)
+            print(f"Appending cards from {filename}...")
+            cards_df = cards_df.append(this_file_df)
+        except: #TODO: specify frequent errors that might trigger this
+            print(f"\nError: Attempt to cardify {filename} failed.")
+            print("Skipping and resuming with next file...\n")
+            time.sleep(2)
 
+    cards_df.drop_duplicates(inplace=True)
     cards_df.reset_index(drop=True, inplace=True)
 
     if write_out:
@@ -182,22 +213,10 @@ def folder_to_cards(folder, write_out=True):
         write_out(cards_df, filepath)
         print("Write-out complete")
     else:
-        print("Here's your df")
+        print("Here's your dataframe of future cards. Enjoy!")
         return cards_df
 
 
-
 if __name__ == '__main__':
-    choice = input("What do you want to cardify? PDF, docx, pdf folder, or docx folder?")
-    if 'folder' in choice.lower():
-        if 'pdf' in choice.lower():
-            packet_df = folder_to_cards('test_input/Regs23', write_out=False)
-        elif 'docx' in choice.lower():
-            packet_df = folder_to_cards('test_input/BHSU', write_out=False)
-    else:
-        if 'pdf' in choice.lower():
-            packet_text = pdf_to_text('test_input/Packet A.pdf')
-        elif 'docx' in choice.lower():
-            packet_text = docx_to_text('test_input/Packet 1.docx')
-        packet_df = text_to_cards(packet_text, write_to_file=False)
+    packet_df = directory_to_cards("./test_input", write_out=False)
     print(packet_df)
