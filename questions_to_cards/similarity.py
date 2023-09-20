@@ -291,7 +291,8 @@ def remove_redundancies(
         ans_func=jf.jaro_distance,
         clue_func=overlap_cb,
         simplify_answers=True,
-        asc=True
+        asc=True,
+        speed_test=False
 ):
     '''
     Most up-to-date function for finding repetitious clues and deleting them
@@ -349,16 +350,16 @@ def remove_redundancies(
     if ans_term is not None or clue_term is not None:
         print("Subsetting dataframe...")
     df = subset(clue_df, ans_term, clue_term)
-    #
-    # print("Generating simplified answer lines for every row...")
-    # if simplify_answers:
-    #     df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(
-    #         lambda x:distill(str(x), answerline=True)
-    #         )
-    # else:
-    #     df.loc[:,'simple_answer'] = df.loc[:,'answer']
-    #
-    # print("Counting frequency of each simplified answer...")
+    
+    print("Generating simplified answer lines for every row...")
+    if simplify_answers:
+        df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(
+            lambda x:distill(str(x), answerline=True)
+            )
+    else:
+        df.loc[:,'simple_answer'] = df.loc[:,'answer']
+    
+    print("Counting frequency of each simplified answer...")
     simple_ans_freqs = Counter(df.loc[:, 'simple_answer'])
 
 
@@ -371,14 +372,14 @@ def remove_redundancies(
 
 
 
-    #
-    # print("Calculating number of unique words in each clue...")
-    # df.loc[:,'bag_size'] = df.loc[:,'clue'].progress_apply(
-    #     lambda x:len(wordify(x))
-    # )
-    #
-    # # greatly reduce runtime, by allowing us to calculate all matches for each
-    # # simple answerline only once.
+    
+    print("Calculating number of unique words in each clue...")
+    df.loc[:,'bag_size'] = df.loc[:,'clue'].progress_apply(
+        lambda x:len(wordify(x))
+    )
+    
+    # greatly reduce runtime, by allowing us to calculate all matches for each
+    # simple answerline only once.
     print("Sorting database...")
     df = df.sort_values(by=['simple_answer', 'clue'], ascending=asc)
     #
@@ -422,7 +423,7 @@ def remove_redundancies(
     for idx, row in df.iterrows():
 
         print(f"\nNOW CONSIDERING ROW {idx}.")
-        if idx > 5500:
+        if speed_test and idx > 5500:
             break
         # we can't check if row.clue == '_DEL_' because the underlying df mutates
         # as we go, but the iterrows() object does NOT mutate.
