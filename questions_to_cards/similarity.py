@@ -1,4 +1,3 @@
-import jellyfish as jf
 import pandas as pd
 import numpy as np
 import string
@@ -6,9 +5,8 @@ import re
 from unidecode import unidecode
 from tqdm import tqdm
 tqdm.pandas()
-import time
 from collections import Counter
-import batch_jaro_winkler as bjw
+import batch_jaro_winkler as bjw # by Dominik Bousquet, https://github.com/dbousque/batch_jaro_winkler
 
 CLUES_FILEPATH = 'test_output/clues_2023512-104755.csv'
 
@@ -113,26 +111,12 @@ def distill(
     return distilled_phrase
 
 
-def unique_simple_answerlines(filepath=CLUES_FILEPATH):
-    '''
-    Determine how many unique answerlines there are in a clue DataFrame.
-    '''
-    df = pd.read_csv(filepath, sep='\t')
-    df.loc[:, 'simple_answer'] = df.loc[:, 'answer'].progress_apply(lambda x: distill(str(x), answerline=True))
-    df = df.drop_duplicates(subset=['simple_answer'])
-    df = df.sort_values('simple_answer', ascending=True)
-    series = df.loc[:, 'simple_answer']
-    #print(series)
-    series.to_csv('unique_answers_0512.csv', sep='\t', escapechar='\\', index=False)
-
-
 def wordify(clue: str, answerline=False):
     '''
     Convert a sentence/clue/answer into a set of unique non-stopword words.
     This prepares the input for Jaccard or overlap similarity comparisons.
     '''
     if answerline:
-        # clue = re.sub(r'\(.+\)|\[.+\]', '', clue)
         REJECT_RE = r'(?:do not|don’t)\s(?:accept|prompt|take)\s|reject\s'
         # get rid of everything after reject/do not accept
         clue = re.split(REJECT_RE, clue)[0]
@@ -145,138 +129,6 @@ def wordify(clue: str, answerline=False):
     else:
         return word_set
 
-
-def overlap(clue1, clue2, debug=False):
-    '''
-    Calculate the overlap coefficient of two clues.
-    See https://en.wikipedia.org/wiki/Overlap_coefficient
-    '''
-    bag1 = wordify(clue1)
-    bag2 = wordify(clue2)
-    shared = bag1 & bag2
-
-    try:
-        overlap_coefficient = len(shared) / min(len(bag1), len(bag2))
-    except ZeroDivisionError:
-        overlap_coefficient = 1
-
-    if debug:
-        print(f"Shared: {len(shared)}")
-        print(f"Bag 1 size: {len(bag1)}; Bag 2 size: {len(bag2)}")
-        print(f"Overlap coefficient: {overlap_coefficient}")
-    return overlap_coefficient
-
-
-def overlap_cb(clue_bag1, clue_bag2, debug=False):
-    '''
-    Calculate the overlap coefficient of two clues.
-    See https://en.wikipedia.org/wiki/Overlap_coefficient
-    '''
-    shared = clue_bag1 & clue_bag2
-
-    try:
-        overlap_coefficient = len(shared) / min(len(clue_bag1), len(clue_bag2))
-    except ZeroDivisionError:
-        overlap_coefficient = 1
-
-    if debug:
-        print(f"Shared: {len(shared)}")
-        print(f"Bag 1 size: {len(clue_bag1)}; Bag 2 size: {len(clue_bag2)}")
-        print(f"Overlap coefficient: {overlap_coefficient}")
-    return overlap_coefficient
-
-
-def overlap_compare(clue1, clue2, threshold=0.6, debug=False):
-    '''
-    Determine whether two clues' overlap coefficient is above desired threshold.
-    '''
-    if debug:
-        print(f"Threshold: {threshold}")
-    return (overlap(clue1, clue2, debug=debug) >= threshold)
-
-
-def comparator_test(
-        func=jf.jaro_distance,
-        str1="Name this American poet of “Lady Lazarus,” “Daddy,” and The Bell Jar.",
-        str2="Name this poet of “Ariel” and “Daddy” as well as The Bell Jar."
-):
-    return func(str1, str2)
-
-
-def naive_remove_redundancies(
-        clue_df,
-        ANS_THRESH=0.7,
-        CLUE_THRESH=0.6,
-):
-    '''
-    Generate a "simplified answer line" for every row.
-    Then for each row in the dataframe, compare that row against all (remaining)
-    rows later than it. If their answers have similar enough Jaro-Winkler similarity
-    and the clues have a high enough percentage of overlapping words, mark
-    the row with the shorter clue for deletion
-
-    This function is for prototyping purposes only, to demonstrate the desired
-    logic for row similarity comparison and removal. It will be extremely slow
-    on large Pandas dataframes -- i.e. O(n^2).
-    Estimated run time for a dataframe of 10,000 clues is 30 minutes.
-    Estimated run time for a dataframe of 1.4 million clues is 243 days.
-    '''
-    # TODO: be more sure this isn't altering original df
-    clue_df = clue_df.copy(deep=True)
-    clue_df.loc[:, 'simple_answer'] = clue_df.loc[:, 'answer'].progress_apply(
-        lambda x: distill(str(x), answerline=True)
-    )
-
-    rows_to_delete = 0
-    for idx, row_a in clue_df.iterrows():
-        print(f"\nStarting row {idx}, {rows_to_delete} marked for deletion")
-        if row_a.clue == '_DEL_':
-            print(f"Row {idx} has already been marked for deletion. Continuing")
-            continue
-
-        for jdx, row_b in clue_df.loc[idx + 1:, :].iterrows():
-            if row_b.clue == '_DEL_':
-                print(f"Row {jdx} has already been marked for deletion. Continuing")
-                continue
-
-            #print(f"Comparing row {idx} to row {jdx}")
-            #print(f"Overlap of {row_a.simple_answer}, {row_b.simple_answer}:")
-            answer_similarity = jf.jaro_distance(row_a.simple_answer, row_b.simple_answer)
-            #print(answer_similarity)
-
-            if answer_similarity > ANS_THRESH:
-                #print(f"\nOverlap of clues...")
-                #print(row_a.clue)
-                #print(row_b.clue)
-                clue_similarity = overlap(row_a.clue, row_b.clue)
-                #print(clue_similarity)
-
-                if clue_similarity > CLUE_THRESH:
-                    row_a_size = len(wordify(row_a.clue))
-                    row_b_size = len(wordify(row_b.clue))
-                    print(f"Row {idx} size: {row_a_size}; Row {jdx} size: {row_b_size}")
-                    if row_a_size > row_b_size:
-                        print(f"Row {jdx} has fewer words. Delete it")
-                        clue_df.loc[jdx, 'clue'] = '_DEL_'
-                        clue_df.loc[jdx, 'answer'] = '_DEL_'
-                        rows_to_delete += 1
-                    elif row_a_size == row_b_size:
-                        print(f"Rows {idx} and {jdx} have the same number of unique words. Continue")
-                        continue
-                    elif row_b_size > row_a_size:
-                        print(f"Row {idx} has fewer words. Delete it and move on to next row")
-                        clue_df.loc[idx, 'clue'] = '_DEL_'
-                        clue_df.loc[idx, 'answer'] = '_DEL_'
-                        rows_to_delete += 1
-                        break
-            else:
-                pass
-                #print("Not similar enough. Continuing\n")
-
-    print(f"{rows_to_delete} rows marked for deletion.")
-    clue_df = clue_df.loc[~(clue_df.loc[:, 'clue'] == '_DEL_'), :]
-    print(f"Deletion complete. {len(clue_df)} rows remain.")
-    return clue_df
 
 def remove_redundancies(
         clue_df,
@@ -308,7 +160,7 @@ def remove_redundancies(
 
     Inputs:
         - clues_filepath (str or DataFrame): location of clues DataFrame in directory
-        or the DataFrame itself. (#TODO: make flexible to take df from other sources)
+        or the DataFrame itself.
         - ans_term (str): used for subsetting the DataFrame to look only at answer
         lines that contain this substring. Greatly increases runtime.
         - clue_term (str): used for subsetting the DataFrame to look only at clues
@@ -375,16 +227,17 @@ def remove_redundancies(
     df.loc[:, 'clue_similarity'] = -1.0
 
     print("Preparing for batch Jaro-Winkler similarity score calculation...")
-    #this line breaks if I don't dropna. Should probably make that not be true.
-    uq_strs, uq_idxs = np.unique(df[["simple_answer"]].to_numpy().flatten(), return_inverse=True)
-    exp_model = bjw.build_exportable_model(uq_strs.flatten())
+    # this line breaks if I don't dropna (if "nan" is an answer). TODO: fix
+    unique_strs, unique_idxs = np.unique(df[["simple_answer"]].to_numpy().flatten(), return_inverse=True)
+    exp_model = bjw.build_exportable_model(unique_strs.flatten())
     rt_model = bjw.build_runtime_model(exp_model)
 
-    init_bjw_result = bjw.jaro_distance(rt_model, "asdf")
+    # re-order Jaro-Winkler results from original sort order (based on length)
+    init_bjw_result = bjw.jaro_distance(rt_model, "_")
     bjw_order_strs = np.array([result_tuple[0] for result_tuple in init_bjw_result])
     bjw_order_to_alphabetical_idxs = np.argsort(bjw_order_strs)
 
-    #variable initialization
+    # initialize variables
     prev_answer = None
     rows_marked_del = 0
     ans_similarity_bin = np.full((len(df),), False)
@@ -406,20 +259,23 @@ def remove_redundancies(
 
         if row_tuple.simple_answer != prev_answer:
             # Recalculate similarity scores
-            bjw_res = bjw.jaro_distance(rt_model, row_tuple.simple_answer)
-            uq_res_vals = np.array([result_tuple[1] for result_tuple in bjw_res])[bjw_order_to_alphabetical_idxs]
-            ans_similarity_bin = (uq_res_vals > ans_thresh)[uq_idxs]
+            bjw_result = bjw.jaro_distance(rt_model, row_tuple.simple_answer)
+            unique_res_vals = np.array([result_tuple[1] for result_tuple in bjw_result])[bjw_order_to_alphabetical_idxs]
+            # Find which rows have answer with a high enough similarity score
+            ans_similarity_bin = (unique_res_vals > ans_thresh)[unique_idxs]
             prev_answer = row_tuple.simple_answer
 
         # make ans_similarity_bin (ans_similarity > ans_thresh) & (index > row_idx)
         ans_similarity_bin[:row_tuple.Index+1] = False
 
         df_subset = df.loc[ans_similarity_bin, :]
-        # Within that, get matching clues (speedy clue overlap comparison w/ numpy)
+        # Within that, find matching clues by calculating overlap coefficients
+        # between this row's clue and each other clue (speedily, using numpy)
+        # See https://en.wikipedia.org/wiki/Overlap_coefficient
         shared_words = np.sum(np.isin(numeric_clue_bag[ans_similarity_bin, :], numeric_clue_bag[row_tuple.Index, :row_tuple.bag_size]), axis=1)
         min_vals = np.minimum(row_tuple.bag_size, bag_size_numpy[ans_similarity_bin])
 
-        # work around numpy ZeroDivisionWarning
+        # work around numpy ZeroDivisionWarning:
         # set the 0s to 1000 then set the clue overlap to 1 eventually
         min_vals[min_vals<1] = 1000
         clue_overlap_vals = shared_words/min_vals
@@ -440,7 +296,7 @@ def remove_redundancies(
             else:
                 print("NO MATCHING CLUES OF SMALLER LENGTH FOUND")
 
-            # within those, if ANY has a wordify_bag_size > this row's wordify_bag_size:
+            # within those, check for ANY strictly longer clue
             BIGGER_MASK = (df_subset.loc[:, 'bag_size'] > row_tuple.bag_size)
             BIGGER_SUBSET_MASK = CLUE_MATCH_MASK & BIGGER_MASK
             if BIGGER_SUBSET_MASK.sum() > 0:
