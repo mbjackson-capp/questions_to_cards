@@ -5,7 +5,6 @@ import string
 import re
 from unidecode import unidecode
 from tqdm import tqdm
-
 tqdm.pandas()
 import time
 from collections import Counter
@@ -92,7 +91,6 @@ def distill(
         phrase = str(phrase)
 
     if answerline:
-        # phrase = re.sub(r'\(.+\)|\[.+\]', '', phrase)
         REJECT_RE = r'(?:do not|don’t)\s(?:accept|prompt|take)\s|reject\s'
         # get rid of everything after reject/do not accept
         phrase = re.split(REJECT_RE, phrase)[0]
@@ -121,10 +119,10 @@ def unique_simple_answerlines(filepath=CLUES_FILEPATH):
     '''
     df = pd.read_csv(filepath, sep='\t')
     df.loc[:, 'simple_answer'] = df.loc[:, 'answer'].progress_apply(lambda x: distill(str(x), answerline=True))
-    df.drop_duplicates(subset=['simple_answer'], inplace=True)
+    df = df.drop_duplicates(subset=['simple_answer'])
     df = df.sort_values('simple_answer', ascending=True)
     series = df.loc[:, 'simple_answer']
-    print(series)
+    #print(series)
     series.to_csv('unique_answers_0512.csv', sep='\t', escapechar='\\', index=False)
 
 
@@ -284,13 +282,9 @@ def remove_redundancies(
         clue_df,
         ans_term=None,
         clue_term=None,
-        start_at=None,
-        end_at=None,
         skip_thresh=None,
         ans_thresh=0.7,
         clue_thresh=0.6,
-        ans_func=jf.jaro_distance,
-        clue_func=overlap_cb,
         simplify_answers=True,
         asc=True
 ):
@@ -303,46 +297,36 @@ def remove_redundancies(
 
     Then, for each row of the dataframe, uses Pandas selectors and vectorized
     .apply() to do the following:
-        -"Block" on fuzzy-matching answer lines by finding LATER rows whose
+        - "Block" on fuzzy-matching answer lines by finding LATER rows whose
         answer line has a high enough Jaro-Winkler similarity score to current row.
         -Within those, find rows whose clue has high enough word overlap with
         current row.
-        -Mark current row for deletion if any high-word-overlap clue below this
+        - Mark current row for deletion if any high-word-overlap clue below this
         one is longer than current row (to preserve card with maximal information).
-        -Mark any row with fuzzy-matching answer and high-word-overlap clue for
+        - Mark any row with fuzzy-matching answer and high-word-overlap clue for
         deletion if that row's clue is shorter than current row (to delete redundancies).
 
     Inputs:
-        -clues_filepath (str or DataFrame): location of clues DataFrame in directory
+        - clues_filepath (str or DataFrame): location of clues DataFrame in directory
         or the DataFrame itself. (#TODO: make flexible to take df from other sources)
-        -term (str): used for subsetting the DataFrame to look only at clues
+        - ans_term (str): used for subsetting the DataFrame to look only at answer
+        lines that contain this substring. Greatly increases runtime.
+        - clue_term (str): used for subsetting the DataFrame to look only at clues
         that contain this substring. Greatly increases runtime.
-        -start_at (str or None): used to subset the DataFrame to look only at
-        answerlines that start after this point (e.g., 'start_at=aarom' allows
-        for starting at the answer line 'Aaron'.) (#TODO: Change this so it merely
-        STARTS AT this answer rather than DELETING prior rows.) (#TODO: allow this
-        to be an int representing an index.)
-        -end_at (str or None): used to subset the DataFrame to look only at
-        answerlines up to this point (e.g., 'end_at=jaws' allows for ending
-        redundancy removal at the answer line 'Jaws')
-        -skip_thresh (int or None): if an integer, represents the minimum number
+        - skip_thresh (int or None): if an integer, represents the minimum number
         of occurrences a simple answer should have in order to be evaluated. For
         example, if skip_thresh == 3, the function will not recalculate similarity
         scores for simple answers that occur only 2 times or 1 time in the
         underlying df. This saves time when the clue df is large and full of
         relatively rare answer lines that are unlikely to have matching clues.
-        -ans_thresh (float): threshold value for answer similarity score, above
+        - ans_thresh (float): threshold value for answer similarity score, above
         which two answers will be considered to match.
-        -clue_thresh (float): thresold value for clue similarity score, above
+        - clue_thresh (float): thresold value for clue similarity score, above
         which two clues will be considere close enough to mark the shorter one
         for deletion.
-        -ans_func (function name): Should be Jaro-Winkler distance; can be changed
-        to test a different similarity function.
-        -clue_func (function name): Should be overlap; can be changed to test
-        a different similarity function.
-        -simplify_answers (boolean): Determines whether answers are simplified
+        - simplify_answers (boolean): Determines whether answers are simplified
         prior to comparison. Should be set to True.
-        -asc (boolean): Determines whether simplified answer lines are sorted
+        - asc (boolean): Determines whether simplified answer lines are sorted
         alphabetically (0-Z, True) or in reverse alphabetical order (Z-0, False).
 
     Returns (df): the dataframe with repetitious rows deleted.
@@ -449,7 +433,6 @@ def remove_redundancies(
         CLUE_MATCH_MASK = clue_overlap_vals > clue_thresh
 
         if CLUE_MATCH_MASK.sum() > 0:
-
             # within those, use panda selectors to get ones where the wordify_bag_size <
             # this row's wordify_bag_size
             SMALLER_MASK = (df_subset.loc[:, 'bag_size'] < row_tuple.bag_size)
@@ -471,7 +454,6 @@ def remove_redundancies(
             BIGGER_MASK = (df_subset.loc[:, 'bag_size'] > row_tuple.bag_size)
             BIGGER_SUBSET_MASK = CLUE_MATCH_MASK & BIGGER_MASK
             if BIGGER_SUBSET_MASK.sum() > 0:
-                # TODO: Show the clue(s) that are longer that necessitated deleting this one
                 print("THIS ROW IS SHORTER THAN A MATCHING CLUE. MARKING IT FOR DELETION...")
                 print("(For reference, here is a LONGER row we are KEEPING:)")
                 print(df_subset.loc[BIGGER_SUBSET_MASK, :].sample(1))
@@ -491,14 +473,19 @@ def remove_redundancies(
 
 
 if __name__ == '__main__':
-    # print("Loading clue csv...")
-    clues = pd.read_csv("clues_sample_big.csv", sep="\t")
-    # clues = pd.read_csv(CLUES_FILEPATH, sep='\t')
-    # ans_input = input("Choose phrase to filter answer line by, or type Enter to continue:")
-    # if ans_input == '':
-    #     ans_input = None
-    # clue_input = input("Choose phrase to filter clues by, or type Enter to continue:")
-    # if clue_input == '':
-    #     clue_input = None
-    #slow_remove_redundancies(clues)
-    df = remove_redundancies(clues, clue_thresh=.55, skip_thresh=3)
+    print("Loading clue csv...")
+    CLUES_FILEPATH = "clues_sample100_092023.csv"
+    clues = pd.read_csv(CLUES_FILEPATH, sep="\t")
+    ans_input = input("Choose phrase to filter answer line by, or type Enter to continue:")
+    if ans_input == '':
+        ans_input = None
+    clue_input = input("Choose phrase to filter clues by, or type Enter to continue:")
+    if clue_input == '':
+        clue_input = None
+    df = remove_redundancies(
+        clues, 
+        ans_term=ans_input,
+        clue_term=clue_input,
+        clue_thresh=.55, 
+        skip_thresh=3
+        )
