@@ -374,7 +374,7 @@ def remove_redundancies(
     df.loc[:, 'ans_similarity'] = -1.0
     df.loc[:, 'clue_similarity'] = -1.0
 
-    print("doing bjw stuff...")
+    print("Preparing for batch Jaro-Winkler similarity score calculation...")
     #this line breaks if I don't dropna. Should probably make that not be true.
     uq_strs, uq_idxs = np.unique(df[["simple_answer"]].to_numpy().flatten(), return_inverse=True)
     exp_model = bjw.build_exportable_model(uq_strs.flatten())
@@ -392,8 +392,6 @@ def remove_redundancies(
 
     for row_tuple in df.itertuples():
         print(f"\nNOW CONSIDERING ROW {row_tuple.Index}.")
-        # we can't check if row.clue == '_DEL_' because the underlying df mutates
-        # as we go, but the iterrows() object does NOT mutate.
         if row_tuple.Index in deleted_rows:
             print(f"Row {row_tuple.Index} has been marked for deletion. Continuing")
             continue
@@ -407,8 +405,7 @@ def remove_redundancies(
             continue
 
         if row_tuple.simple_answer != prev_answer:
-            #print("Recalculating similarity scores...")
-            # Recalculate ans_similarity for all rows AFTER this one
+            # Recalculate similarity scores
             bjw_res = bjw.jaro_distance(rt_model, row_tuple.simple_answer)
             uq_res_vals = np.array([result_tuple[1] for result_tuple in bjw_res])[bjw_order_to_alphabetical_idxs]
             ans_similarity_bin = (uq_res_vals > ans_thresh)[uq_idxs]
@@ -418,31 +415,24 @@ def remove_redundancies(
         ans_similarity_bin[:row_tuple.Index+1] = False
 
         df_subset = df.loc[ans_similarity_bin, :]
-        # Within that, get matching clues
-        # TODO: Check if this is being calculated right. Values sometimes seem too small
-
-        #speed up clue overlap comparison by using numpy
+        # Within that, get matching clues (speedy clue overlap comparison w/ numpy)
         shared_words = np.sum(np.isin(numeric_clue_bag[ans_similarity_bin, :], numeric_clue_bag[row_tuple.Index, :row_tuple.bag_size]), axis=1)
         min_vals = np.minimum(row_tuple.bag_size, bag_size_numpy[ans_similarity_bin])
 
-        #unnecessary zero division warning workaround but ok
-        #set the 0s to 1000 then set the clue overlap to 1 eventually
+        # work around numpy ZeroDivisionWarning
+        # set the 0s to 1000 then set the clue overlap to 1 eventually
         min_vals[min_vals<1] = 1000
         clue_overlap_vals = shared_words/min_vals
         clue_overlap_vals[min_vals==1000] = 1
         CLUE_MATCH_MASK = clue_overlap_vals > clue_thresh
 
         if CLUE_MATCH_MASK.sum() > 0:
-            # within those, use panda selectors to get ones where the wordify_bag_size <
-            # this row's wordify_bag_size
+            # within those, get strictly shorter clues
             SMALLER_MASK = (df_subset.loc[:, 'bag_size'] < row_tuple.bag_size)
             DEL_MASK = ~df_subset.index.isin(deleted_rows)
             SMALLER_SUBSET_MASK = CLUE_MATCH_MASK & SMALLER_MASK & DEL_MASK
             if (num_subset_del := SMALLER_SUBSET_MASK.sum()) > 0:
                 # mark all such rows for deletion
-                full_del_locs = SMALLER_SUBSET_MASK.index[np.where(SMALLER_SUBSET_MASK)[0]]
-                #df.loc[full_del_locs, ["clue", "answer", "simple_answer"]] = '_DEL_'
-                #df.loc[full_del_locs, ["bag_size"]] = 0
                 print(f"{num_subset_del} rows ready to be marked for deletion")
                 print(df_subset.loc[SMALLER_SUBSET_MASK, :])
                 deleted_rows.update(df_subset.index[SMALLER_SUBSET_MASK])
@@ -457,8 +447,6 @@ def remove_redundancies(
                 print("THIS ROW IS SHORTER THAN A MATCHING CLUE. MARKING IT FOR DELETION...")
                 print("(For reference, here is a LONGER row we are KEEPING:)")
                 print(df_subset.loc[BIGGER_SUBSET_MASK, :].sample(1))
-                #df.loc[row_tuple.Index, ['clue', 'answer', 'simple_answer']] = '_DEL_'
-                #df.loc[row_tuple.Index, 'bag_size'] = 0
                 deleted_rows.update([row_tuple.Index])
                 rows_marked_del += 1
 
@@ -489,3 +477,4 @@ if __name__ == '__main__':
         clue_thresh=.55, 
         skip_thresh=3
         )
+    print(f"Actual length of new dataframe is: {len(df)}")
