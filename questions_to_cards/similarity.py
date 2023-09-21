@@ -231,7 +231,7 @@ def naive_remove_redundancies(
 
     rows_to_delete = 0
     for idx, row_a in clue_df.iterrows():
-        print(f"\nStarting row {idx}")
+        print(f"\nStarting row {idx}, {rows_to_delete} marked for deletion")
         if row_a.clue == '_DEL_':
             print(f"Row {idx} has already been marked for deletion. Continuing")
             continue
@@ -241,17 +241,17 @@ def naive_remove_redundancies(
                 print(f"Row {jdx} has already been marked for deletion. Continuing")
                 continue
 
-            print(f"Comparing row {idx} to row {jdx}")
-            print(f"Overlap of {row_a.simple_answer}, {row_b.simple_answer}:")
+            #print(f"Comparing row {idx} to row {jdx}")
+            #print(f"Overlap of {row_a.simple_answer}, {row_b.simple_answer}:")
             answer_similarity = jf.jaro_distance(row_a.simple_answer, row_b.simple_answer)
-            print(answer_similarity)
+            #print(answer_similarity)
 
             if answer_similarity > ANS_THRESH:
-                print(f"\nOverlap of clues...")
-                print(row_a.clue)
-                print(row_b.clue)
+                #print(f"\nOverlap of clues...")
+                #print(row_a.clue)
+                #print(row_b.clue)
                 clue_similarity = overlap(row_a.clue, row_b.clue)
-                print(clue_similarity)
+                #print(clue_similarity)
 
                 if clue_similarity > CLUE_THRESH:
                     row_a_size = len(wordify(row_a.clue))
@@ -272,7 +272,8 @@ def naive_remove_redundancies(
                         rows_to_delete += 1
                         break
             else:
-                print("Not similar enough. Continuing\n")
+                pass
+                #print("Not similar enough. Continuing\n")
 
     print(f"{rows_to_delete} rows marked for deletion.")
     clue_df = clue_df.loc[~(clue_df.loc[:, 'clue'] == '_DEL_'), :]
@@ -291,8 +292,7 @@ def remove_redundancies(
         ans_func=jf.jaro_distance,
         clue_func=overlap_cb,
         simplify_answers=True,
-        asc=True,
-        speed_test=False
+        asc=True
 ):
     '''
     Most up-to-date function for finding repetitious clues and deleting them
@@ -350,160 +350,149 @@ def remove_redundancies(
     if ans_term is not None or clue_term is not None:
         print("Subsetting dataframe...")
     df = subset(clue_df, ans_term, clue_term)
-    
-    print("Generating simplified answer lines for every row...")
-    if simplify_answers:
-        df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(
-            lambda x:distill(str(x), answerline=True)
-            )
-    else:
-        df.loc[:,'simple_answer'] = df.loc[:,'answer']
-    
+
+    if "simple_answer" not in df.columns:
+        print("Generating simplified answer lines for every row...")
+        if simplify_answers:
+            df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(
+                lambda x:distill(str(x), answerline=True)
+                )
+        else:
+            df.loc[:,'simple_answer'] = df.loc[:,'answer']
+
     print("Counting frequency of each simplified answer...")
     simple_ans_freqs = Counter(df.loc[:, 'simple_answer'])
-
-
-
-
-
 
     print("generating clue bag...")
     df.loc[:, 'clue_bag'] = df.loc[:, 'clue'].progress_apply(wordify)
 
+    if "bag_size" not in df.columns:
+        print("Calculating number of unique words in each clue...")
+        df.loc[:,'bag_size'] = df.loc[:,'clue'].progress_apply(lambda x:len(wordify(x)))
 
-
-    
-    print("Calculating number of unique words in each clue...")
-    df.loc[:,'bag_size'] = df.loc[:,'clue'].progress_apply(
-        lambda x:len(wordify(x))
-    )
-    
     # greatly reduce runtime, by allowing us to calculate all matches for each
     # simple answerline only once.
     print("Sorting database...")
     df = df.sort_values(by=['simple_answer', 'clue'], ascending=asc)
-    #
-    # df.reset_index(drop=True, inplace=True)
-    print(len(df))
     df = df.dropna(how="any", subset=["answer", "simple_answer"]).reset_index(drop=True)
-    print(len(df))
 
     print("Generating numeric_clue_bag table...")
-
     bag_size_numpy = df["bag_size"].to_numpy()
     word_counter = Counter()
     for clue_bag in df["clue_bag"]:
         word_counter.update(clue_bag)
-    all_word_arr = np.sort(np.array([word for word, occs in word_counter.items() if occs > 0]))
+    all_word_arr = np.sort(np.array([word for word in word_counter.keys()]))
     numeric_clue_bag = np.zeros((len(df), np.amax(bag_size_numpy)), dtype=int)-1
     for clue_i, clue_bag in enumerate(tqdm(df["clue_bag"])):
-        idxs = np.searchsorted(all_word_arr, np.array(list(clue_bag)))
-        numeric_clue_bag[clue_i, :len(idxs)] = idxs
-
-
-
+        word_to_idx = np.searchsorted(all_word_arr, np.array(list(clue_bag)))
+        numeric_clue_bag[clue_i, :len(word_to_idx)] = word_to_idx
 
     df.loc[:, 'ans_similarity'] = -1.0
     df.loc[:, 'clue_similarity'] = -1.0
 
-    uq_strs, uq_idxs = np.unique(df[["simple_answer"]].to_numpy().flatten(), return_inverse=True)
-    uq_strs_df = pd.DataFrame(uq_strs, columns=["simple_answer"], dtype=str)
     print("doing bjw stuff...")
+    #this line breaks if I don't dropna. Should probably make that not be true.
+    uq_strs, uq_idxs = np.unique(df[["simple_answer"]].to_numpy().flatten(), return_inverse=True)
     exp_model = bjw.build_exportable_model(uq_strs.flatten())
     rt_model = bjw.build_runtime_model(exp_model)
-    print("done with bjw stuff")
 
+    init_bjw_result = bjw.jaro_distance(rt_model, "asdf")
+    bjw_order_strs = np.array([result_tuple[0] for result_tuple in init_bjw_result])
+    bjw_order_to_alphabetical_idxs = np.argsort(bjw_order_strs)
+
+    #variable initialization
     prev_answer = None
-
     rows_marked_del = 0
-    # for uq_i, uq_str in enumerate(uq_strs):
-    #     res = bjw.jaro_distance(rt_model, uq_str)
-    #     uq_res_vals = np.array([restup[1] for restup in res])
     ans_similarity_bin = np.full((len(df),), False)
-    for idx, row in df.iterrows():
+    deleted_rows = set()
 
-        print(f"\nNOW CONSIDERING ROW {idx}.")
-        if speed_test and idx > 5500:
-            break
+    for row_tuple in df.itertuples():
+        print(f"\nNOW CONSIDERING ROW {row_tuple.Index}.")
         # we can't check if row.clue == '_DEL_' because the underlying df mutates
         # as we go, but the iterrows() object does NOT mutate.
-        if df.loc[idx, 'clue'] == '_DEL_':
-            print(f"Row {idx} has been marked for deletion. Continuing")
+        if row_tuple.Index in deleted_rows:
+            print(f"Row {row_tuple.Index} has been marked for deletion. Continuing")
             continue
         else:
-            print(f"\nanswer: {row.answer}\nclue: {row.clue}")
+            print(f"answer: {row_tuple.simple_answer}")
 
-        this_ans_freq = simple_ans_freqs[row.simple_answer]
+        this_ans_freq = simple_ans_freqs[row_tuple.simple_answer]
         if skip_thresh is not None and this_ans_freq < skip_thresh:
             print(f"This answer occurs only {this_ans_freq} times. Not often enough to calculate scores")
             print("Skipping")
             continue
 
-        if row.simple_answer != prev_answer:
-            print("Recalculating similarity scores...")
+        if row_tuple.simple_answer != prev_answer:
+            #print("Recalculating similarity scores...")
             # Recalculate ans_similarity for all rows AFTER this one
-            res = bjw.jaro_distance(rt_model, row.simple_answer)
-            uq_res_vals = np.array([restup[1] for restup in res])
-            #df.loc[:, 'ans_similarity'] = uq_res_vals[uq_idxs]
+            bjw_res = bjw.jaro_distance(rt_model, row_tuple.simple_answer)
+            uq_res_vals = np.array([result_tuple[1] for result_tuple in bjw_res])[bjw_order_to_alphabetical_idxs]
             ans_similarity_bin = (uq_res_vals > ans_thresh)[uq_idxs]
-            # all_sims = uq_strs_df["simple_answer"].progress_apply(lambda x: ans_func(x, row.simple_answer))
-            # df.loc[:, 'ans_similarity'] = all_sims.iloc[uq_idxs].reset_index()
-            prev_answer = row.simple_answer
-        ans_similarity_bin[:idx+1] = False
+            prev_answer = row_tuple.simple_answer
 
-        # Get matching answers later than this one
+        # make ans_similarity_bin (ans_similarity > ans_thresh) & (index > row_idx)
+        ans_similarity_bin[:row_tuple.Index+1] = False
+
         df_subset = df.loc[ans_similarity_bin, :]
         # Within that, get matching clues
         # TODO: Check if this is being calculated right. Values sometimes seem too small
 
-        ncb_subset = numeric_clue_bag[ans_similarity_bin, :].copy()
-        ncb_subset[ncb_subset < 0] = -2
-        shared_words = np.sum(np.isin(ncb_subset, numeric_clue_bag[idx, :]), axis=1)
-        min_vals = np.minimum(row.bag_size, bag_size_numpy[ans_similarity_bin])
+        #speed up clue overlap comparison by using numpy
+        shared_words = np.sum(np.isin(numeric_clue_bag[ans_similarity_bin, :], numeric_clue_bag[row_tuple.Index, :row_tuple.bag_size]), axis=1)
+        min_vals = np.minimum(row_tuple.bag_size, bag_size_numpy[ans_similarity_bin])
+
+        #unnecessary zero division warning workaround but ok
+        #set the 0s to 1000 then set the clue overlap to 1 eventually
+        min_vals[min_vals<1] = 1000
         clue_overlap_vals = shared_words/min_vals
-        clue_overlap_vals[min_vals<1] = 1
+        clue_overlap_vals[min_vals==1000] = 1
         CLUE_MATCH_MASK = clue_overlap_vals > clue_thresh
 
         if CLUE_MATCH_MASK.sum() > 0:
 
             # within those, use panda selectors to get ones where the wordify_bag_size <
             # this row's wordify_bag_size
-            SMALLER_MASK = (df_subset.loc[:, 'bag_size'] < row.bag_size)
-            SMALLER_SUBSET_MASK = CLUE_MATCH_MASK & SMALLER_MASK
-            # DEL_MASK = ANS_MATCH_MASK & CLUE_MATCH_MASK & SMALLER_MASK & IDX_MASK
+            SMALLER_MASK = (df_subset.loc[:, 'bag_size'] < row_tuple.bag_size)
+            DEL_MASK = ~df_subset.index.isin(deleted_rows)
+            SMALLER_SUBSET_MASK = CLUE_MATCH_MASK & SMALLER_MASK & DEL_MASK
             if (num_subset_del := SMALLER_SUBSET_MASK.sum()) > 0:
-                print(f"{num_subset_del} rows ready to be marked for deletion")
-                # print(df.loc[DEL_MASK, :])
                 # mark all such rows for deletion
-                df.loc[ans_similarity_bin, ['clue', 'answer', 'simple_answer']].loc[SMALLER_SUBSET_MASK, :] = '_DEL_'
-                df.loc[ans_similarity_bin, ['bag_size']].loc[SMALLER_SUBSET_MASK, :] = 0
+                full_del_locs = SMALLER_SUBSET_MASK.index[np.where(SMALLER_SUBSET_MASK)[0]]
+                #df.loc[full_del_locs, ["clue", "answer", "simple_answer"]] = '_DEL_'
+                #df.loc[full_del_locs, ["bag_size"]] = 0
+                print(f"{num_subset_del} rows ready to be marked for deletion")
+                print(df_subset.loc[SMALLER_SUBSET_MASK, :])
+                deleted_rows.update(df_subset.index[SMALLER_SUBSET_MASK])
                 rows_marked_del += num_subset_del
             else:
                 print("NO MATCHING CLUES OF SMALLER LENGTH FOUND")
 
             # within those, if ANY has a wordify_bag_size > this row's wordify_bag_size:
-            BIGGER_MASK = (df_subset.loc[:, 'bag_size'] > row.bag_size)
+            BIGGER_MASK = (df_subset.loc[:, 'bag_size'] > row_tuple.bag_size)
             BIGGER_SUBSET_MASK = CLUE_MATCH_MASK & BIGGER_MASK
             if BIGGER_SUBSET_MASK.sum() > 0:
                 # TODO: Show the clue(s) that are longer that necessitated deleting this one
                 print("THIS ROW IS SHORTER THAN A MATCHING CLUE. MARKING IT FOR DELETION...")
                 print("(For reference, here is a LONGER row we are KEEPING:)")
                 print(df_subset.loc[BIGGER_SUBSET_MASK, :].sample(1))
-                df.loc[idx, ['clue', 'answer', 'simple_answer']] = '_DEL_'
-                df.loc[idx, 'bag_size'] = 0
+                #df.loc[row_tuple.Index, ['clue', 'answer', 'simple_answer']] = '_DEL_'
+                #df.loc[row_tuple.Index, 'bag_size'] = 0
+                deleted_rows.update([row_tuple.Index])
                 rows_marked_del += 1
 
         print(f"Rows marked for deletion so far: {rows_marked_del}")
 
+    assert rows_marked_del == len(deleted_rows)
     print(f"{rows_marked_del} total rows marked for deletion")
-    df = df.loc[(df.loc[:, 'clue'] != '_DEL_'), ["clue", "answer", "tags"]]
+    deleted_rows_mask = df.index.isin(deleted_rows)
+    df = df.loc[~deleted_rows_mask, ["clue", "answer", "tags"]]
     print("Redundant row deletion complete")
     return df
 
 
 if __name__ == '__main__':
     # print("Loading clue csv...")
-    clues = pd.read_csv("cluestest_cleaned.csv", sep="\t")
+    clues = pd.read_csv("clues_sample_big.csv", sep="\t")
     # clues = pd.read_csv(CLUES_FILEPATH, sep='\t')
     # ans_input = input("Choose phrase to filter answer line by, or type Enter to continue:")
     # if ans_input == '':
@@ -511,5 +500,5 @@ if __name__ == '__main__':
     # clue_input = input("Choose phrase to filter clues by, or type Enter to continue:")
     # if clue_input == '':
     #     clue_input = None
-
-    remove_redundancies(clues)
+    #slow_remove_redundancies(clues)
+    df = remove_redundancies(clues, clue_thresh=.55, skip_thresh=3)
