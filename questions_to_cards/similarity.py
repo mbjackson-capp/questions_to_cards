@@ -6,7 +6,10 @@ from unidecode import unidecode
 from tqdm import tqdm
 tqdm.pandas()
 from collections import Counter
+import spacy
 import batch_jaro_winkler as bjw # by Dominik Bousquet, https://github.com/dbousque/batch_jaro_winkler
+
+nlp = spacy.load("en_core_web_sm", exclude=["parser", "ner"])
 
 CLUES_FILEPATH = 'test_output/clues_2023512-104755.csv'
 
@@ -25,7 +28,7 @@ ans_stopwords = {'accept', 'prompt', 'reject', 'directed', 'antiprompt',
 all_stopwords = qb_stopwords | more_stopwords | indicator_stopwords
 qb_punctuation = string.punctuation + '“”'
 
-pd.set_option('display.max_colwidth', 1000)
+pd.set_option('display.max_colwidth', 400)
 
 
 def subset(clues, ans_term=None, clue_term=None, write_out=False):
@@ -78,6 +81,7 @@ def distill(
         phrase: str,
         answerline=False,
         remove_brackets=True,
+        lemmatize=False,
         max_length=50) -> str:
     '''
     Distill a clue or answer line down by removing stopwords, spaces, and
@@ -104,14 +108,20 @@ def distill(
     if answerline:
         phrase = [word for word in phrase if word not in ans_stopwords]
 
-    distilled_phrase = ''.join(phrase)
+    #Source: https://www.machinelearningplus.com/nlp/lemmatization-examples-python/
+    if lemmatize:
+        doc = nlp(' '.join(phrase))
+        distilled_phrase = ''.join([token.lemma_ for token in doc])
+    else:
+        distilled_phrase = ''.join(phrase)
+
     if len(distilled_phrase) > max_length:
         distilled_phrase = distilled_phrase[:max_length + 1]
 
     return distilled_phrase
 
 
-def wordify(clue: str, answerline=False):
+def wordify(clue: str, answerline=False, lemmatize=False):
     '''
     Convert a sentence/clue/answer into a set of unique non-stopword words.
     This prepares the input for Jaccard or overlap similarity comparisons.
@@ -122,8 +132,14 @@ def wordify(clue: str, answerline=False):
         clue = re.split(REJECT_RE, clue)[0]
 
     clue = re.sub(r'[^\w\s\d]', '', unidecode(clue.lower()))
-    # consider doing some lemmatizing here
-    word_set = {wd for wd in clue.split() if wd not in all_stopwords}
+
+    if lemmatize:
+        doc = nlp(clue)
+        word_set = {token.lemma_ for token in doc}
+        word_set = {wd for wd in word_set if wd not in all_stopwords}
+    else:
+        word_set = {wd for wd in clue.split() if wd not in all_stopwords}
+
     if answerline:
         return {wd for wd in word_set if wd not in ans_stopwords}
     else:
@@ -138,6 +154,7 @@ def remove_redundancies(
         ans_thresh=0.7,
         clue_thresh=0.6,
         simplify_answers=True,
+        lemmatize=False,
         asc=True
 ):
     '''
@@ -191,7 +208,7 @@ def remove_redundancies(
         print("Generating simplified answer lines for every row...")
         if simplify_answers:
             df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(
-                lambda x:distill(str(x), answerline=True)
+                lambda x:distill(str(x), answerline=True, lemmatize=lemmatize)
                 )
         else:
             df.loc[:,'simple_answer'] = df.loc[:,'answer']
@@ -200,11 +217,13 @@ def remove_redundancies(
     simple_ans_freqs = Counter(df.loc[:, 'simple_answer'])
 
     print("generating clue bag...")
-    df.loc[:, 'clue_bag'] = df.loc[:, 'clue'].progress_apply(wordify)
+    df.loc[:, 'clue_bag'] = df.loc[:, 'clue'].progress_apply(
+        lambda x: wordify(x, lemmatize=lemmatize)
+        )
 
     if "bag_size" not in df.columns:
         print("Calculating number of unique words in each clue...")
-        df.loc[:,'bag_size'] = df.loc[:,'clue'].progress_apply(lambda x:len(wordify(x)))
+        df.loc[:,'bag_size'] = df.loc[:,'clue_bag'].progress_apply(len)
 
     # greatly reduce runtime, by allowing us to calculate all matches for each
     # simple answerline only once.
@@ -326,11 +345,17 @@ if __name__ == '__main__':
     clue_input = input("Choose phrase to filter clues by, or type Enter to continue:")
     if clue_input == '':
         clue_input = None
+    print("Do you want to lemmatize answers and clues?")
+    lemmatize_input = input("This will GREATLY INCREASE runtime and is STRONGLY DISCOURAGED.")
+    if lemmatize_input in ["yes", "y", True, 1]:
+        lemmatize_input = True
+    else:
+        lemmatize_input = False 
     df = remove_redundancies(
         clues, 
         ans_term=ans_input,
-        clue_term=clue_input,
-        clue_thresh=.55, 
-        skip_thresh=3
+        clue_term=clue_input, 
+        skip_thresh=3,
+        lemmatize=lemmatize_input
         )
     print(f"Actual length of new dataframe is: {len(df)}")
