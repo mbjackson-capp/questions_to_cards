@@ -22,6 +22,35 @@ SPLIT_RE = re.compile(r"(?=ANSWER:)|" #answer line
 DOCX_JUNK = r'\s+|<[^>]+>|Bonuses'
 
 
+def file_to_cards(
+        filename, 
+        diff=None,
+        yr=None,
+        write_to_file=False,
+        debug=False
+):
+    '''
+    Function that converts a .docx or PDF to a dataframe of flashcards. Calls 
+    on functions below as helper functions
+    '''
+    if '.pdf' in filename:
+        file_text = pdf_to_text(filename)
+    elif '.docx' in filename:
+        file_text = docx_to_text(filename)   
+    else:
+        raise Exception(f"File type {filename[:-4]} is not supported")
+    
+    cards_df = text_to_cards(
+        file_text, 
+        diff=diff, 
+        yr=yr, 
+        write_to_file=write_to_file,
+        debug=debug
+    )
+
+    return cards_df
+
+
 def pdf_to_text(packet_filepath):
     '''
     Convert a packet of quizbowl questions in PDF format to a list that can
@@ -81,7 +110,7 @@ def text_to_cards(
         all_text: list,
         diff=None, 
         yr=None, 
-        write_to_file=True,
+        write_to_file=False,
         debug=False
         ):
     '''
@@ -170,7 +199,7 @@ def get_all_filenames(starting_dir):
     return all_names
 
 
-def directory_to_cards(rootdir, write_out=True):
+def directory_to_cards(rootdir, write_to_file=True):
     '''
     Convert all .docx and .pdf files in a directory into an Anki-importable csv
     of cards. Operates recursively, so that sub-folders within folders are
@@ -179,7 +208,7 @@ def directory_to_cards(rootdir, write_out=True):
     Inputs:
         -rootdir (str): Name of the root folder containing all other subfolders
         and packet files
-        -write_out (boolean): whether to write out the resulting df to .csv
+        -write_to_file (boolean): whether to write out the resulting df to .csv
         or return it in-environment
     Returns (pandas DataFrame): cards    
     '''
@@ -189,24 +218,18 @@ def directory_to_cards(rootdir, write_out=True):
     print(all_files)
     
     for filename in all_files:
-        if '.pdf' in filename:
-            this_file_text = pdf_to_text(filename)
-        elif '.docx' in filename:
-            this_file_text = docx_to_text(filename)
-
         try:
-            this_file_df = text_to_cards(this_file_text, write_to_file=False)
+            this_file_df = file_to_cards(filename, write_to_file=False)
             print(f"Appending cards from {filename}...")
             cards_df = cards_df.append(this_file_df)
         except: #TODO: specify frequent errors that might trigger this
             print(f"\nError: Attempt to cardify {filename} failed.")
             print("Skipping and resuming with next file...\n")
-            time.sleep(2)
+            time.sleep(0.5)
 
-    cards_df.drop_duplicates(inplace=True)
-    cards_df.reset_index(drop=True, inplace=True)
+    cards_df = cards_df.drop_duplicates().reset_index(drop=True)
 
-    if write_out:
+    if write_to_file:
         now = datetime.now().strftime("%Y%-m%d-%H%M%S")
         filepath = f"test_output/folder_clues_{now}.csv"
         print(f"Writing clue cards to {filepath}...")
@@ -218,5 +241,5 @@ def directory_to_cards(rootdir, write_out=True):
 
 
 if __name__ == '__main__':
-    packet_df = directory_to_cards("./test_input", write_out=False)
+    packet_df = directory_to_cards("./test_input", write_to_file=False)
     print(packet_df)
