@@ -26,9 +26,10 @@ LETTER_TO_CAT = {key[0]: key for key in ALL_CATEGORIES}
 LETTER_TO_CAT['S'] = "Science"
 LETTER_TO_CAT['A'] = "Fine Arts"
 
-def command_line_app():
+def user_interface():
     '''
-    Run a command line interface that gets questions and turns them into cards.
+    Run a user interface that gets questions and turns them into cards. Can be
+    run from command line.
     '''
     source = input(f"Where would you like to get questions from?\n" +
                    f"Type 'file' for file, 'folder' for folder, 'backup' for QBReader backup JSONs," +
@@ -147,6 +148,6 @@ def command_line_app():
         return None, None
 
 if __name__ == '__main__':
-    tossups, bonuses = command_line_app()
+    tossups, bonuses = user_interface()
     print(tossups)
     print(bonuses)
