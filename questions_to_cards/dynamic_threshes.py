@@ -44,6 +44,22 @@ def recursive_ans_thresh(n: int, pow=-2, denom=2) -> float:
     else:
         return recursive_ans_thresh(n - 1) - (n**pow)/denom
 
+def ans_thresh_hashtable(n: int, pow=-2, denom=2, min_thresh=0.7) -> dict:
+    '''
+    Use memoized values to calculate all similarity thresholds for strings of
+    up to length n, using the formula above. Returns a dictionary that can be
+    used for constant-time lookup rather than repeatedly doing recursive calculations
+    each time we want to look at a particular string.
+    '''
+    threshes = {1: 1.0}
+    for i in range(2, n+1):
+        likely_next_value = threshes[i-1] - (i**pow)/denom
+        if likely_next_value < min_thresh:
+            threshes[i] = min_thresh
+        else:
+            threshes[i] = likely_next_value
+    
+    return threshes
 
 def dynamic_clue_thresh(n: int) -> float:
     '''
@@ -62,6 +78,5 @@ def dynamic_clue_thresh(n: int) -> float:
         return (math.floor(n/2) + 1.0) / n
     
 if __name__ == '__main__':
-    for n in range(1, 50):
-        print(recursive_ans_thresh(n))
+    print(ans_thresh_hashtable(50))
 
