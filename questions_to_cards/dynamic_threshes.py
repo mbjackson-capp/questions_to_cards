@@ -44,7 +44,7 @@ def recursive_ans_thresh(n: int, pow=-2, denom=2) -> float:
     else:
         return recursive_ans_thresh(n - 1) - (n**pow)/denom
 
-def ans_thresh_hashtable(n: int, pow=-2, denom=2, min_thresh=0.7) -> dict:
+def ans_thresh_hashtable(n=50, pow=-2, denom=2, min_thresh=0.7) -> dict:
     '''
     Use memoized values to calculate all similarity thresholds for strings of
     up to length n, using the formula above. Returns a dictionary that can be

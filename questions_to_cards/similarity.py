@@ -8,6 +8,7 @@ tqdm.pandas()
 from collections import Counter
 import spacy
 import batch_jaro_winkler as bjw # by Dominik Bousquet, https://github.com/dbousque/batch_jaro_winkler
+from dynamic_threshes import ans_thresh_hashtable, dynamic_clue_thresh
 
 nlp = spacy.load("en_core_web_sm", exclude=["parser", "ner"])
 
@@ -148,11 +149,13 @@ def wordify(clue: str, answerline=False, lemmatize=False):
 
 def remove_redundancies(
         clue_df,
+        max_ans_len=50,
         ans_term=None,
         clue_term=None,
         skip_thresh=None,
         ans_thresh=0.7,
         clue_thresh=0.6,
+        dynamic_threshes=True,
         simplify_answers=True,
         lemmatize=False,
         asc=True
@@ -200,6 +203,10 @@ def remove_redundancies(
 
     Returns (df): the dataframe with repetitious rows deleted.
     '''
+    if dynamic_threshes:
+        print("DYNAMIC THRESHOLD-SETTING IS ON")
+        ALL_ANS_THRESHES = ans_thresh_hashtable(max_ans_len+1)
+
     if ans_term is not None or clue_term is not None:
         print("Subsetting dataframe...")
     df = subset(clue_df, ans_term, clue_term)
@@ -208,13 +215,18 @@ def remove_redundancies(
         print("Generating simplified answer lines for every row...")
         if simplify_answers:
             df.loc[:,'simple_answer'] = df.loc[:,'answer'].progress_apply(
-                lambda x:distill(str(x), answerline=True, lemmatize=lemmatize)
+                lambda x:distill(str(x), 
+                                 answerline=True,
+                                 max_length = max_ans_len,
+                                 lemmatize=lemmatize)
                 )
         else:
             df.loc[:,'simple_answer'] = df.loc[:,'answer']
 
     print("Counting frequency of each simplified answer...")
     simple_ans_freqs = Counter(df.loc[:, 'simple_answer'])
+    #TODO: You probably want to create an ans_len column here instead of calculating
+    # each time you have a new similarity threshold.
 
     print("generating clue bag...")
     df.loc[:, 'clue_bag'] = df.loc[:, 'clue'].progress_apply(
@@ -280,6 +292,9 @@ def remove_redundancies(
             # Recalculate similarity scores
             bjw_result = bjw.jaro_distance(rt_model, row_tuple.simple_answer)
             unique_res_vals = np.array([result_tuple[1] for result_tuple in bjw_result])[bjw_order_to_alphabetical_idxs]
+            if dynamic_threshes:
+                ans_thresh = ALL_ANS_THRESHES[len(row_tuple.simple_answer)]
+                print(f"New similarity threshold for {row_tuple.simple_answer} = {ans_thresh}")
             # Find which rows have answer with a high enough similarity score
             ans_similarity_bin = (unique_res_vals > ans_thresh)[unique_idxs]
             prev_answer = row_tuple.simple_answer
@@ -299,10 +314,14 @@ def remove_redundancies(
         min_vals[min_vals<1] = 1000
         clue_overlap_vals = shared_words/min_vals
         clue_overlap_vals[min_vals==1000] = 1
+        if dynamic_threshes:
+            clue_thresh = dynamic_clue_thresh(row_tuple.bag_size)
+            print(f"Similarity threshold for this clue: {clue_thresh}")
         CLUE_MATCH_MASK = clue_overlap_vals > clue_thresh
 
         if CLUE_MATCH_MASK.sum() > 0:
             # within those, get strictly shorter clues
+            print(f"This clue: {row_tuple.clue_bag}")
             SMALLER_MASK = (df_subset.loc[:, 'bag_size'] < row_tuple.bag_size)
             DEL_MASK = ~df_subset.index.isin(deleted_rows)
             SMALLER_SUBSET_MASK = CLUE_MATCH_MASK & SMALLER_MASK & DEL_MASK
