@@ -14,6 +14,7 @@ from datetime import datetime
 from tqdm import tqdm
 from text_processing import tokenize_and_explode, cleanup, my_split, clean_clue_text, clean_answer_text
 from utility import write_out
+from similarity import remove_redundancies
 
 tqdm.pandas()
 
@@ -305,6 +306,16 @@ def run(normalize_len=True, write_to_file=True):
     print("Generating Anki tags...")
     clues['tags'] = clues.progress_apply(lambda x: tagstring(x), axis=1)
 
+    print("Run redundant clue removal algorithm? Type 'yes' to confirm.")
+    rr_input = input("WARNING: This will take several hours.")
+    if rr_input == 'yes':
+        rr_input = input("Are you sure?? Type 'yes' again to confirm.")
+        if rr_input == 'yes':
+            print("Do you want to lemmatize words in clues? Type 'yes' to confirm.")
+            lemma_input = input("WARNING: This will add as much as several hours to runtime.")
+            lemma_choice = (lemma_input == 'yes')
+            clues = remove_redundancies(clues, lemmatize=lemma_choice)
+
     if write_to_file:
         now = datetime.now().strftime("%Y%-m%d-%H%M%S")
         filepath = f"clues_{now}.csv"
@@ -314,7 +325,8 @@ def run(normalize_len=True, write_to_file=True):
         print("Enjoy carding!")
     else:
         print("Enjoy your dataframe!")
-        return clues
+    
+    return clues
 
 if __name__ == "__main__":
     run(write_to_file=False)

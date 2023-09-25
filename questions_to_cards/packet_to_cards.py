@@ -38,7 +38,7 @@ def file_to_cards(
     elif '.docx' in filename:
         file_text = docx_to_text(filename)   
     else:
-        raise Exception(f"File type {filename[:-4]} is not supported")
+        raise Exception(f"File type {filename[-4:]} is not supported")
     
     cards_df = text_to_cards(
         file_text, 
@@ -65,7 +65,6 @@ def pdf_to_text(packet_filepath):
         than the question/part level
     Returns (pandas DataFrame): DataFrame of cards
     '''
-
     reader = PdfReader(packet_filepath) 
 
     all_text = ''
@@ -199,7 +198,7 @@ def get_all_filenames(starting_dir):
     return all_names
 
 
-def directory_to_cards(rootdir, write_to_file=True):
+def directory_to_cards(rootdir, write_to_file=False):
     '''
     Convert all .docx and .pdf files in a directory into an Anki-importable csv
     of cards. Operates recursively, so that sub-folders within folders are

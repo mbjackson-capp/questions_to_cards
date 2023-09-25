@@ -233,9 +233,9 @@ def remove_redundancies(
         lambda x: wordify(x, lemmatize=lemmatize)
         )
 
-    if "bag_size" not in df.columns:
-        print("Calculating number of unique words in each clue...")
-        df.loc[:,'bag_size'] = df.loc[:,'clue_bag'].progress_apply(len)
+    # this needs to be recalculated every time even if csv has it as a column
+    print("Calculating number of unique words in each clue...")
+    df.loc[:,'bag_size'] = df.loc[:,'clue_bag'].progress_apply(len)
 
     # greatly reduce runtime, by allowing us to calculate all matches for each
     # simple answerline only once.

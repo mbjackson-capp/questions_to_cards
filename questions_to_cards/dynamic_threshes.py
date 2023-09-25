@@ -51,7 +51,7 @@ def ans_thresh_hashtable(n=50, pow=-2, denom=2, min_thresh=0.7) -> dict:
     used for constant-time lookup rather than repeatedly doing recursive calculations
     each time we want to look at a particular string.
     '''
-    threshes = {1: 1.0}
+    threshes = {0: 1.0, 1: 1.0}
     for i in range(2, n+1):
         likely_next_value = threshes[i-1] - (i**pow)/denom
         if likely_next_value < min_thresh:
