@@ -1,5 +1,5 @@
 # questions_to_cards
-Scripts for converting bulk collections of quizbowl questions, such as folders of [packets](https://quizbowlpackets.com) or [QBReader](https://www.qbreader.org/db) backup .json files, into .csv files formatted for import as [Anki](https://apps.ankiweb.net) digital flashcards at the clue level.
+Scripts for converting bulk collections of quizbowl questions, such as ~~folders of [packets](https://quizbowlpackets.com) or~~ [QBReader](https://www.qbreader.org/db) backup .json files, into .csv files formatted for import as [Anki](https://apps.ankiweb.net) digital flashcards at the clue level.
 
 ## Background
 
@@ -12,13 +12,12 @@ Building a collection of useful flashcards can be difficult -- creating new flas
 
 When executed, the module should:
 
-- Ingest a collection of quizbowl questions from a specified filepath (.pdf file, .docx file, folder of .pdf and/or .docx files, QBReader backup `tossups.json` and/or `bonuses.json`),
+- Ingest a collection of quizbowl questions from a specified location (~~.pdf file, .docx file, folder of .pdf and/or .docx files,~~ QBReader backup `tossups.json` and/or `bonuses.json` filepaths, _qbreader API `query()`_),
     - *For category-labeled input: let user narrow down to specific categories (`Science`, e.g.) (or difficulty ratings, release years, etc.)*
 - Pre-process text to isolate proper boundaries between cogent clue-sentences (usually, sentence-final periods) and prevent splitting elsewhere (e.g. at ellipses)
 - Split each question into cogent clue-sentences, with each clue-sentence paired with its answer; stack those clue-answer pairs as a pandas DataFrame
 - Post-process the DataFrame to remove obvious non-clues, drop duplicates, clean up clue and answer line formatting, etc.
     - For large DataFrames where multiple questions have the same/similar answer: use fuzzy matching to remove near-duplicate rows
-    - *For small DataFrames: give user a chance to look over the table and manually delete unneeded rows (i.e. clues they don't need a card for*)
 - Keep a column of metadata (question release year, category, etc.) to be read in as [Anki tags](https://docs.ankiweb.net/editing.html?highlight=tags#using-tags)
 - Write out the final DataFrame to a .csv file, for import to Anki (*and allow for auto-upload to Anki on one's system*)
 
@@ -83,11 +82,11 @@ An Anki card can have an arbitrary number of tags, which can be used to organize
 When Anki imports have a Tags column, each entry in that column is a string, in which different tags are separated by a single space. So, to preserve the information about a clue's category, difficulty, release year, source, and type, it might be imported with a tagstring like: 
 - `cat::Science::Other_Science diff::3 source::2020_MOQBA_Novice type::tossup yr::2020` (example tossup)
 
-Depending on input source, it may not be possible to obtain all this information. (*In recent years, it has become standard for questions to have a category label and/or author credit after the last answerline; input directly from packet files will seek to extract that information. Additionally, users may be asked from the command line if a specified difficulty, category, release year, etc. should be applied to all cards in the file.*)
+Depending on input source, it may not be possible to obtain all this information. (*~~In recent years, it has become standard for questions to have a category label and/or author credit after the last answerline; input directly from packet files will seek to extract that information. Additionally,~~ users may be asked from the command line if a specified difficulty, category, release year, etc. should be applied to all cards in the file.*)
 
 ## Redundancy removal
 
-As of September 24, 2023, QBReader contains "267,538 questions from 527 sets." As of September 17, 2023, the `bonuses.json` backup file is 212 MB and the `tossups.json` backup file is 235.1 MB (up from 169.5 MB and 182.8 MB, respectively, in April 2023). When split at the clue-sentence level, this produces almost _1.5 million_ unique cards; the resultant .csv is about 400 MB. These sizes will only grow as more questions are added to QBReader.
+As of September 24, 2023, QBReader contains at least "267,538 questions from 527 sets." As of September 17, 2023, the `bonuses.json` backup file is 212 MB and the `tossups.json` backup file is 235.1 MB (up from 169.5 MB and 182.8 MB, respectively, in April 2023). When split at the clue-sentence level, this produces almost _1.5 million_ unique cards; the resultant .csv is about 400 MB. These sizes will only grow as more questions are added to QBReader.
 
 This is more cards than any individual can possibly learn. Having this many cards in Anki causes hang-time delays of several seconds when doing basic things such as "open the Browse window", and produces a database so large that it cannot be synced on AnkiWeb (which has a 300MB size limit).
 
