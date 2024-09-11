@@ -1,4 +1,7 @@
 # questions_to_cards
+
+_**Note: This repository has not been in active development since September 2023 and further development is on indefinite hiatus. If you are interested in continuing this project please contact repo owner.**_
+
 Scripts for converting bulk collections of quizbowl questions, such as ~~folders of [packets](https://quizbowlpackets.com) or~~ [QBReader](https://www.qbreader.org/db) backup .json files, into .csv files formatted for import as [Anki](https://apps.ankiweb.net) digital flashcards at the clue level.
 
 ## Background
@@ -76,6 +79,8 @@ Note: in this case, the first line of the bonus (the "leadin") is omitted becaus
 Also note: the pronunciation guide for ACID is not included.
 
 ### Tagstrings
+
+_**Note: QBReader changed the format of its archival output in spring 2024 and added a subcategory property for many questions; the particulars of this section may have to be altered to account for those changes.**_
 
 An Anki card can have an arbitrary number of tags, which can be used to organize cards or filter while browsing one's card collection. The organization system is hierarchical, with a double colon (`::`) indicating that the string to the right is a sub-tag of the string to the left. For example, if Card A has tag `cat::Science::Biology` and Card B has tag `cat::Science::Chemistry`, both cards will appear in Anki browse results if the user filters to cards with the tag `Science`, but only Card A will appear if the user filters to cards tagged `Biology`.
 
